@@ -1,0 +1,28 @@
+{
+  "name": "jmf-biblio",
+  "version": "1.0.0",
+  "description": "Aplicación web de gestión de biblioteca para centros educativos",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "next": "^15.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "mysql2": "^3.9.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "typescript": "^5.0.0",
+    "eslint": "^9.0.0",
+    "eslint-config-next": "^15.0.0"
+  },
+  "packageManager": "pnpm@9.0.0"
+}
