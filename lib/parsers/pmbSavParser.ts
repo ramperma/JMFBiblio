@@ -172,6 +172,8 @@ const TABLE_ORDER = [
   'exemplaires',
   'responsability',
   'empr',
+  'groupe',
+  'empr_groupe',
   'pret'
 ]
 
