@@ -13,6 +13,7 @@ export interface BookDetail extends Book {
 
 export interface BookCopy {
   expl_id: number
+  expl_cb: string
   expl_statut: string
   expl_notice?: number
 }

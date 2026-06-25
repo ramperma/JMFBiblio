@@ -64,13 +64,20 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const insertId = await bookRepository.createBook({
+    if (!code || String(code).trim().length === 0) {
+      return NextResponse.json(
+        { success: false, error: 'Código de libro requerido' },
+        { status: 400 }
+      )
+    }
+
+    const { noticeId, explCb } = await bookRepository.createBook({
       tit1: String(tit1).trim(),
       year: year ? String(year).trim() : undefined,
       code: code ? String(code).trim() : undefined
     })
 
-    return NextResponse.json({ success: true, data: { notice_id: insertId } })
+    return NextResponse.json({ success: true, data: { notice_id: noticeId, expl_cb: explCb } })
   } catch (error) {
     console.error('Error creating book:', error)
     return NextResponse.json(

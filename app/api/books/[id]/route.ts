@@ -65,6 +65,13 @@ export async function PATCH(
 
     const { tit1, year, code, is_active } = await request.json()
 
+    if (code !== undefined && String(code).trim().length === 0) {
+      return NextResponse.json(
+        { success: false, error: 'Código de libro requerido' },
+        { status: 400 }
+      )
+    }
+
     if (tit1 !== undefined || year !== undefined || code !== undefined) {
       await bookRepository.updateBook(bookId, {
         tit1: tit1 !== undefined ? String(tit1) : undefined,

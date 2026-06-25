@@ -45,6 +45,13 @@ interface AvailableCopy {
   tit1: string
 }
 
+interface BookCopy {
+  expl_id: number
+  expl_cb: string
+  expl_statut: string
+  expl_notice?: number
+}
+
 interface PaginationMeta {
   page: number
   pageSize: number
@@ -195,6 +202,29 @@ export default function Home() {
   const [loginError, setLoginError] = useState('')
   const [loginSubmitting, setLoginSubmitting] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
+
+  const [editingBook, setEditingBook] = useState<Book | null>(null)
+  const [editingBookForm, setEditingBookForm] = useState({ tit1: '', year: '', code: '' })
+
+  const [editingUser, setEditingUser] = useState<User | null>(null)
+
+  const [createdBookBarcode, setCreatedBookBarcode] = useState('')
+  const [showCreatedBookAlert, setShowCreatedBookAlert] = useState(false)
+
+  const [showCopiesModal, setShowCopiesModal] = useState(false)
+  const [copiesModalBook, setCopiesModalBook] = useState<Book | null>(null)
+  const [copiesList, setCopiesList] = useState<BookCopy[]>([])
+  const [copiesLoading, setCopiesLoading] = useState(false)
+
+  const [printBarcodeValue, setPrintBarcodeValue] = useState('')
+  const [printBarcodeTitle, setPrintBarcodeTitle] = useState('')
+  const [editingUserForm, setEditingUserForm] = useState({
+    empr_nom: '',
+    empr_prenom: '',
+    empr_cb: '',
+    empr_mail: '',
+    empr_tel1: ''
+  })
 
   const [stats, setStats] = useState<Statistics | null>(null)
   const [topBooks, setTopBooks] = useState<TopBook[]>([])
@@ -746,8 +776,36 @@ export default function Home() {
       alert(data.error || 'No se pudo crear libro')
       return
     }
+
+    if (data.data && data.data.expl_cb) {
+      setCreatedBookBarcode(data.data.expl_cb)
+      setPrintBarcodeValue(data.data.expl_cb)
+      setPrintBarcodeTitle(newBook.tit1)
+      setShowCreatedBookAlert(true)
+    }
+
     setNewBook({ tit1: '', year: '', code: '' })
     setBooksPagination(prev => ({ ...prev, page: 1 }))
+  }
+
+  const handleViewCopies = async (book: Book) => {
+    setCopiesModalBook(book)
+    setShowCopiesModal(true)
+    setCopiesLoading(true)
+    setCopiesList([])
+    try {
+      const res = await fetch(`/api/books/${book.notice_id}`)
+      const data = await res.json()
+      if (data.success && data.data) {
+        setCopiesList(data.data.copies || [])
+      } else {
+        alert(data.error || 'Error al cargar ejemplares')
+      }
+    } catch (e) {
+      console.error('Error loading copies:', e)
+    } finally {
+      setCopiesLoading(false)
+    }
   }
 
   const createUser = async (e: React.FormEvent) => {
@@ -794,56 +852,42 @@ export default function Home() {
     return true
   }
 
-  const editBook = async (book: Book) => {
-    const tit1 = prompt('Titulo', book.tit1)
-    if (tit1 === null) {
-      return
-    }
-    const year = prompt('Ano', book.year || '')
-    if (year === null) {
-      return
-    }
-    const code = prompt('Codigo', book.code || '')
-    if (code === null) {
-      return
-    }
+  const editBook = (book: Book) => {
+    setEditingBook(book)
+    setEditingBookForm({
+      tit1: book.tit1,
+      year: book.year || '',
+      code: book.code || ''
+    })
+  }
 
-    const ok = await patchBook(book.notice_id, { tit1, year, code })
+  const handleSaveBook = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!editingBook) return
+    const ok = await patchBook(editingBook.notice_id, editingBookForm)
     if (ok) {
+      setEditingBook(null)
       setRefreshKey(k => k + 1)
     }
   }
 
-  const editUser = async (user: User) => {
-    const empr_nom = prompt('Apellido', user.empr_nom)
-    if (empr_nom === null) {
-      return
-    }
-    const empr_prenom = prompt('Nombre', user.empr_prenom || '')
-    if (empr_prenom === null) {
-      return
-    }
-    const empr_cb = prompt('Carne', user.empr_cb || '')
-    if (empr_cb === null) {
-      return
-    }
-    const empr_mail = prompt('Email', user.empr_mail || '')
-    if (empr_mail === null) {
-      return
-    }
-    const empr_tel1 = prompt('Telefono', user.empr_tel1 || '')
-    if (empr_tel1 === null) {
-      return
-    }
-
-    const ok = await patchUser(user.id_empr, {
-      empr_nom,
-      empr_prenom,
-      empr_cb,
-      empr_mail,
-      empr_tel1
+  const editUser = (user: User) => {
+    setEditingUser(user)
+    setEditingUserForm({
+      empr_nom: user.empr_nom,
+      empr_prenom: user.empr_prenom || '',
+      empr_cb: user.empr_cb || '',
+      empr_mail: user.empr_mail || '',
+      empr_tel1: user.empr_tel1 || ''
     })
+  }
+
+  const handleSaveUser = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!editingUser) return
+    const ok = await patchUser(editingUser.id_empr, editingUserForm)
     if (ok) {
+      setEditingUser(null)
       setRefreshKey(k => k + 1)
     }
   }
@@ -985,9 +1029,31 @@ export default function Home() {
             <form className={styles.inlineForm} onSubmit={createBook}>
               <input placeholder="Titulo" value={newBook.tit1} onChange={(e) => setNewBook(prev => ({ ...prev, tit1: e.target.value }))} required />
               <input placeholder="Ano" value={newBook.year} onChange={(e) => setNewBook(prev => ({ ...prev, year: e.target.value }))} />
-              <input placeholder="Codigo" value={newBook.code} onChange={(e) => setNewBook(prev => ({ ...prev, code: e.target.value }))} />
+              <input placeholder="Codigo" value={newBook.code} onChange={(e) => setNewBook(prev => ({ ...prev, code: e.target.value }))} required />
               <button type="submit">+ Libro</button>
             </form>
+
+            {showCreatedBookAlert && (
+              <div className={styles.successText} style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginBottom: '1.5rem', padding: '1rem', background: '#ecfdf5', borderRadius: 'var(--radius)', border: '1px solid #a7f3d0' }}>
+                <span style={{ color: '#065f46' }}>Libro creado con éxito. Copia generada con código de barras: <strong>{createdBookBarcode}</strong></span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTimeout(() => window.print(), 50)
+                  }}
+                  style={{ padding: '0.4rem 0.8rem', fontSize: '0.85rem', background: 'var(--success)', border: 'none', borderRadius: 'var(--radius)', color: 'white' }}
+                >
+                  Imprimir Código de Barras
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowCreatedBookAlert(false)}
+                  style={{ background: 'transparent', color: 'var(--text-secondary)', border: 'none', boxShadow: 'none', marginLeft: 'auto', padding: 0 }}
+                >
+                  Cerrar
+                </button>
+              </div>
+            )}
 
             <div className={styles.filtersRow}>
               <input
@@ -1040,6 +1106,7 @@ export default function Home() {
                       <td>
                         <div className={styles.actionsRow}>
                           <button onClick={() => editBook(book)}>Editar</button>
+                          <button type="button" onClick={() => handleViewCopies(book)}>Ejemplares</button>
                           <button
                             className={book.is_active ? styles.dangerButton : ''}
                             onClick={async () => {
@@ -1655,6 +1722,189 @@ export default function Home() {
           </section>
         )}
       </main>
+
+      {editingBook && (
+        <div className={styles.modalOverlay} onClick={() => setEditingBook(null)}>
+          <div className={styles.modalContainer} onClick={(e) => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h3>Editar Libro (ID: {editingBook.notice_id})</h3>
+              <button className={styles.modalCloseButton} onClick={() => setEditingBook(null)}>×</button>
+            </div>
+            <form onSubmit={handleSaveBook}>
+              <div className={styles.modalBody}>
+                <div className={styles.modalForm}>
+                  <div className={styles.modalFormGroup}>
+                    <label htmlFor="edit_book_tit1">Título</label>
+                    <input
+                      id="edit_book_tit1"
+                      value={editingBookForm.tit1}
+                      onChange={(e) => setEditingBookForm(prev => ({ ...prev, tit1: e.target.value }))}
+                      required
+                    />
+                  </div>
+                  <div className={styles.modalFormGroup}>
+                    <label htmlFor="edit_book_year">Año</label>
+                    <input
+                      id="edit_book_year"
+                      value={editingBookForm.year}
+                      onChange={(e) => setEditingBookForm(prev => ({ ...prev, year: e.target.value }))}
+                    />
+                  </div>
+                  <div className={styles.modalFormGroup}>
+                    <label htmlFor="edit_book_code">Código</label>
+                    <input
+                      id="edit_book_code"
+                      value={editingBookForm.code}
+                      onChange={(e) => setEditingBookForm(prev => ({ ...prev, code: e.target.value }))}
+                      required
+                    />
+                  </div>
+                </div>
+              </div>
+              <div className={styles.modalFooter}>
+                <button type="button" className={styles.cancelButton} onClick={() => setEditingBook(null)}>Cancelar</button>
+                <button type="submit">Guardar</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {editingUser && (
+        <div className={styles.modalOverlay} onClick={() => setEditingUser(null)}>
+          <div className={styles.modalContainer} onClick={(e) => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h3>Editar Usuario (ID: {editingUser.id_empr})</h3>
+              <button className={styles.modalCloseButton} onClick={() => setEditingUser(null)}>×</button>
+            </div>
+            <form onSubmit={handleSaveUser}>
+              <div className={styles.modalBody}>
+                <div className={styles.modalForm}>
+                  <div className={styles.modalFormGroup}>
+                    <label htmlFor="edit_user_nom">Apellido</label>
+                    <input
+                      id="edit_user_nom"
+                      value={editingUserForm.empr_nom}
+                      onChange={(e) => setEditingUserForm(prev => ({ ...prev, empr_nom: e.target.value }))}
+                      required
+                    />
+                  </div>
+                  <div className={styles.modalFormGroup}>
+                    <label htmlFor="edit_user_prenom">Nombre</label>
+                    <input
+                      id="edit_user_prenom"
+                      value={editingUserForm.empr_prenom}
+                      onChange={(e) => setEditingUserForm(prev => ({ ...prev, empr_prenom: e.target.value }))}
+                      required
+                    />
+                  </div>
+                  <div className={styles.modalFormGroup}>
+                    <label htmlFor="edit_user_cb">Carné</label>
+                    <input
+                      id="edit_user_cb"
+                      value={editingUserForm.empr_cb}
+                      onChange={(e) => setEditingUserForm(prev => ({ ...prev, empr_cb: e.target.value }))}
+                    />
+                  </div>
+                  <div className={styles.modalFormGroup}>
+                    <label htmlFor="edit_user_mail">Email</label>
+                    <input
+                      id="edit_user_mail"
+                      type="email"
+                      value={editingUserForm.empr_mail}
+                      onChange={(e) => setEditingUserForm(prev => ({ ...prev, empr_mail: e.target.value }))}
+                    />
+                  </div>
+                  <div className={styles.modalFormGroup}>
+                    <label htmlFor="edit_user_tel">Teléfono</label>
+                    <input
+                      id="edit_user_tel"
+                      value={editingUserForm.empr_tel1}
+                      onChange={(e) => setEditingUserForm(prev => ({ ...prev, empr_tel1: e.target.value }))}
+                    />
+                  </div>
+                </div>
+              </div>
+              <div className={styles.modalFooter}>
+                <button type="button" className={styles.cancelButton} onClick={() => setEditingUser(null)}>Cancelar</button>
+                <button type="submit">Guardar</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {showCopiesModal && copiesModalBook && (
+        <div className={styles.modalOverlay} onClick={() => setShowCopiesModal(false)}>
+          <div className={styles.modalContainer} onClick={(e) => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h3>Ejemplares de: {copiesModalBook.tit1}</h3>
+              <button className={styles.modalCloseButton} onClick={() => setShowCopiesModal(false)}>×</button>
+            </div>
+            <div className={styles.modalBody}>
+              {copiesLoading ? (
+                <div style={{ textAlign: 'center', padding: '1.5rem' }}>Cargando ejemplares...</div>
+              ) : copiesList.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '1.5rem', color: 'var(--text-secondary)' }}>
+                  No hay ejemplares registrados para este libro.
+                </div>
+              ) : (
+                <div className={styles.tableWrapper}>
+                  <div className={styles.table} style={{ border: 'none', boxShadow: 'none' }}>
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>ID</th>
+                          <th>Código Barras</th>
+                          <th>Estado</th>
+                          <th>Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {copiesList.map((copy) => (
+                          <tr key={copy.expl_id}>
+                            <td>{copy.expl_id}</td>
+                            <td>
+                              <strong>{copy.expl_cb || 'N/A'}</strong>
+                            </td>
+                            <td>{copy.expl_statut === '1' ? 'Disponible' : `Código: ${copy.expl_statut}`}</td>
+                            <td>
+                              {copy.expl_cb && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setPrintBarcodeValue(copy.expl_cb)
+                                    setPrintBarcodeTitle(copiesModalBook.tit1)
+                                    setTimeout(() => window.print(), 50)
+                                  }}
+                                  style={{ padding: '0.4rem 0.6rem', fontSize: '0.8rem' }}
+                                >
+                                  Imprimir Código
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className={styles.modalFooter}>
+              <button type="button" className={styles.cancelButton} onClick={() => setShowCopiesModal(false)}>Cerrar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="print-section">
+        <div className="barcode-label">
+          <div className="label-title">{printBarcodeTitle}</div>
+          <div className="label-barcode">*{printBarcodeValue}*</div>
+          <div className="label-text">{printBarcodeValue}</div>
+        </div>
+      </div>
     </div>
   )
 }

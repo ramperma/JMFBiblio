@@ -116,7 +116,38 @@ export const bookRepository = {
       ]
     )
 
-    return (result as ResultSetHeader).insertId
+    const noticeId = (result as ResultSetHeader).insertId
+
+    // Generar el siguiente código de barras secuencial disponible (excluyendo ISBNs/EANs de 13 dígitos)
+    const [cbRows] = await conn.query(
+      `SELECT expl_cb FROM exemplaires 
+       WHERE expl_cb REGEXP '^[0-9]+$' AND CAST(expl_cb AS UNSIGNED) < 1000000000 
+       ORDER BY CAST(expl_cb AS UNSIGNED) DESC LIMIT 1`
+    )
+    const cbArr = cbRows as RowDataPacket[]
+
+    let nextBarcodeVal = 10001
+    let originalStr = ''
+    if (cbArr.length > 0) {
+      originalStr = cbArr[0].expl_cb
+      nextBarcodeVal = parseInt(originalStr, 10) + 1
+    }
+
+    let nextBarcode = String(nextBarcodeVal)
+    if (originalStr.startsWith('0') && originalStr.length > 1) {
+      nextBarcode = String(nextBarcodeVal).padStart(originalStr.length, '0')
+    }
+
+    // Insertar el ejemplar correspondiente en la base de datos
+    await conn.query(
+      `INSERT INTO exemplaires (
+        expl_cb, expl_notice, expl_bulletin, expl_typdoc, expl_cote, expl_section,
+        expl_statut, expl_location, expl_codestat, expl_owner, expl_lastempr, create_date
+      ) VALUES (?, ?, 0, 1, '', 13, 1, 1, 11, 2, 0, NOW())`,
+      [nextBarcode, noticeId]
+    )
+
+    return { noticeId, explCb: nextBarcode }
   },
 
   async updateBook(noticeId: number, input: { tit1?: string; year?: string; code?: string }) {
@@ -192,12 +223,13 @@ export const bookRepository = {
     
     // Get copies
     const [copiesRows] = await conn.query(
-      'SELECT expl_id, expl_statut FROM exemplaires WHERE expl_notice = ?',
+      'SELECT expl_id, expl_cb, expl_statut FROM exemplaires WHERE expl_notice = ?',
       [noticeId]
     )
     
     const copies = (copiesRows as RowDataPacket[]).map(row => ({
       expl_id: row.expl_id,
+      expl_cb: row.expl_cb,
       expl_statut: row.expl_statut,
       expl_notice: row.expl_notice
     }))
@@ -206,8 +238,8 @@ export const bookRepository = {
     const [authorsRows] = await conn.query(
       `SELECT DISTINCT a.author_name
        FROM authors a
-       JOIN responsability r ON r.resp_author = a.author_id
-       WHERE r.resp_notice = ?`,
+       JOIN responsability r ON r.responsability_author = a.author_id
+       WHERE r.responsability_notice = ?`,
       [noticeId]
     )
     
