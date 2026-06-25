@@ -44,24 +44,30 @@
   flex-shrink: 0;
   padding: 0 1.5rem;
   height: 60px;
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  color: var(--text-secondary) !important;
   font-size: 0.95rem;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;
-  border-bottom: 3px solid transparent;
+  border-bottom: 3px solid transparent !important;
   position: relative;
+  transform: none !important;
 }
 
 .navButton:hover {
-  color: var(--text-primary);
+  color: var(--text-primary) !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  transform: none !important;
 }
 
 .navButton.active {
-  color: var(--primary);
-  border-bottom-color: var(--primary);
+  color: var(--primary) !important;
+  border-bottom-color: var(--primary) !important;
 }
 
 .content {
@@ -105,17 +111,6 @@
 
 .filtersRow button {
   padding: 0.5rem 1rem;
-  background: var(--primary);
-  color: white;
-  border: none;
-  border-radius: var(--radius);
-  cursor: pointer;
-  font-weight: 500;
-  transition: all 0.2s ease;
-}
-
-.filtersRow button:hover {
-  background: var(--primary-dark);
 }
 
 .searchBox input {
@@ -256,14 +251,10 @@
 }
 
 .loginCard input,
-.loginCard button,
 .inlineForm input,
 .inlineForm select,
-.inlineForm button,
 .formRow input,
-.formRow button,
 .paginationBar select,
-.actionsRow button,
 .actionsRow input,
 .actionsRow select {
   padding: 0.65rem 0.75rem;
@@ -272,14 +263,6 @@
   font: inherit;
   font-size: 0.9rem;
   transition: all 0.2s ease;
-}
-
-.loginCard input,
-.inlineForm input,
-.inlineForm select,
-.formRow input,
-.actionsRow input,
-.actionsRow select {
   background: var(--bg-white);
   color: var(--text-primary);
 }
@@ -288,35 +271,12 @@
 .inlineForm input:focus,
 .inlineForm select:focus,
 .formRow input:focus,
+.paginationBar select:focus,
 .actionsRow input:focus,
 .actionsRow select:focus {
   outline: none;
   border-color: var(--primary);
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-}
-
-.loginCard button,
-.inlineForm button,
-.formRow button,
-.actionsRow button,
-.paginationBar button,
-.logoutButton {
-  border: none;
-  background: var(--primary);
-  color: white;
-  cursor: pointer;
-  font-weight: 500;
-}
-
-.loginCard button:hover,
-.inlineForm button:hover,
-.formRow button:hover,
-.actionsRow button:hover,
-.paginationBar button:hover,
-.logoutButton:hover {
-  background: var(--primary-dark);
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-md);
 }
 
 .loginCard button:disabled,
@@ -433,22 +393,12 @@
 
 .primaryButton {
   background: var(--success) !important;
-  color: white;
-  border: none;
-  border-radius: var(--radius);
-  padding: 0.65rem 1.25rem;
-  font: inherit;
-  cursor: pointer;
-  font-weight: 500;
   align-self: flex-start;
   margin-top: 0.5rem;
-  transition: all 0.2s ease;
 }
 
 .primaryButton:hover {
   background: #059669 !important;
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-md);
 }
 
 .successText {
@@ -564,20 +514,7 @@
 
 .searchInline button {
   padding: 0.65rem 1rem;
-  background: var(--primary);
-  color: white;
-  border: none;
-  border-radius: var(--radius);
-  font: inherit;
-  cursor: pointer;
   white-space: nowrap;
-  font-weight: 500;
-  font-size: 0.9rem;
-  transition: all 0.2s ease;
-}
-
-.searchInline button:hover {
-  background: var(--primary-dark);
 }
 
 .searchResultList {
@@ -1013,19 +950,23 @@
 }
 
 .consoleClearBtn {
-  background: transparent;
-  border: 1px solid #475569;
-  color: #94a3b8;
-  padding: 0.25rem 0.5rem;
-  border-radius: var(--radius);
-  font-size: 0.75rem;
+  background: transparent !important;
+  border: 1px solid #475569 !important;
+  color: #94a3b8 !important;
+  padding: 0.25rem 0.5rem !important;
+  border-radius: var(--radius) !important;
+  font-size: 0.75rem !important;
   cursor: pointer;
   transition: all 0.15s ease;
+  box-shadow: none !important;
+  transform: none !important;
 }
 
 .consoleClearBtn:hover {
-  background: #334155;
-  color: #f8fafc;
+  background: #334155 !important;
+  color: #f8fafc !important;
+  box-shadow: none !important;
+  transform: none !important;
 }
 
 .consoleBody {
