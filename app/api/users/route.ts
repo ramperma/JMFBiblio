@@ -20,6 +20,8 @@ export async function GET(request: NextRequest) {
       200,
       Math.max(1, parseInt(searchParams.get('pageSize') || '20', 10))
     )
+    const groupId = searchParams.get('groupId')
+    const gid = groupId ? parseInt(groupId, 10) : undefined
 
     const result = await userRepository.getUsersPaginated(
       page,
@@ -27,7 +29,8 @@ export async function GET(request: NextRequest) {
       query,
       sortBy,
       sortDir,
-      includeInactive
+      includeInactive,
+      !gid || isNaN(gid) ? undefined : gid
     )
 
     return NextResponse.json({

@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAdmin } from '@/lib/auth/role-check'
 import { getBackupPath } from '@/lib/backup'
-import { createReadStream, statSync, existsSync } from 'fs'
-import { Readable } from 'stream'
+import { existsSync } from 'fs'
+import { readFile } from 'fs/promises'
 
 export async function GET(
   _request: NextRequest,
@@ -18,14 +18,13 @@ export async function GET(
     if (!existsSync(filepath)) {
       return NextResponse.json({ success: false, error: 'Archivo no encontrado' }, { status: 404 })
     }
-    const st = statSync(filepath)
-    const stream = Readable.toWeb(createReadStream(filepath)) as ReadableStream
+    const buffer = await readFile(filepath)
 
-    return new NextResponse(stream, {
+    return new NextResponse(buffer, {
       status: 200,
       headers: {
         'Content-Type': 'application/gzip',
-        'Content-Length': String(st.size),
+        'Content-Length': String(buffer.byteLength),
         'Content-Disposition': `attachment; filename="${file}"`
       }
     })

@@ -7,11 +7,12 @@ interface Params {
 }
 
 export async function GET(
-  request: NextRequest,
-  { params }: { params: Params }
+  _request: NextRequest,
+  { params }: { params: Promise<Params> }
 ) {
   try {
-    const bookId = parseInt(params.id)
+    const { id } = await params
+    const bookId = parseInt(id)
 
     if (isNaN(bookId)) {
       return NextResponse.json(
@@ -44,7 +45,7 @@ export async function GET(
 
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: Params }
+  { params }: { params: Promise<Params> }
 ) {
   const session = await getCurrentSession()
   if (!session) {
@@ -52,7 +53,8 @@ export async function PATCH(
   }
 
   try {
-    const bookId = parseInt(params.id, 10)
+    const { id } = await params
+    const bookId = parseInt(id, 10)
 
     if (isNaN(bookId)) {
       return NextResponse.json(

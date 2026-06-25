@@ -18,6 +18,7 @@ export interface LoanDetail extends Loan {
   empr_prenom?: string
   expl_id: number
   expl_cb?: string
+  borrower_groups?: string
 }
 
 export const loanRepository = {
@@ -31,6 +32,7 @@ export const loanRepository = {
       book?: string
       dateFrom?: string
       dateTo?: string
+      groupId?: number
       sortBy?: 'pret_id' | 'pret_date' | 'pret_retour' | 'tit1' | 'empr_nom'
       sortDir?: 'asc' | 'desc'
     }
@@ -70,6 +72,11 @@ export const loanRepository = {
       params.push(options.dateTo)
     }
 
+    if (options?.groupId) {
+      conditions.push('p.pret_idempr IN (SELECT empr_id FROM empr_groupe WHERE groupe_id = ?)')
+      params.push(options.groupId)
+    }
+
     const sortMap: Record<string, string> = {
       pret_id: 'p.pret_idexpl',
       pret_date: 'p.pret_date',
@@ -105,7 +112,11 @@ export const loanRepository = {
         u.empr_nom,
         u.empr_prenom,
         e.expl_id,
-        e.expl_cb
+        e.expl_cb,
+        (SELECT GROUP_CONCAT(g.libelle_groupe SEPARATOR ', ')
+         FROM empr_groupe eg
+         JOIN groupe g ON g.id_groupe = eg.groupe_id
+         WHERE eg.empr_id = p.pret_idempr) AS borrower_groups
        FROM pret p
        JOIN exemplaires e ON e.expl_id = p.pret_idexpl
        JOIN notices n ON n.notice_id = e.expl_notice
@@ -127,7 +138,8 @@ export const loanRepository = {
       empr_nom: row.empr_nom,
       empr_prenom: row.empr_prenom,
       expl_id: row.expl_id,
-      expl_cb: row.expl_cb
+      expl_cb: row.expl_cb,
+      borrower_groups: row.borrower_groups || ''
     }))
 
     return { data, total }

@@ -12,6 +12,7 @@ export async function GET(request: NextRequest) {
     const book = searchParams.get('book') || undefined
     const dateFrom = searchParams.get('dateFrom') || undefined
     const dateTo = searchParams.get('dateTo') || undefined
+    const groupId = searchParams.get('groupId')
     const sortBy = (searchParams.get('sortBy') || 'pret_date') as
       | 'pret_id'
       | 'pret_date'
@@ -26,6 +27,7 @@ export async function GET(request: NextRequest) {
     )
 
     const uid = userId ? parseInt(userId, 10) : undefined
+    const gid = groupId ? parseInt(groupId, 10) : undefined
 
     const result = await loanRepository.getLoansPaginated(page, pageSize, {
       userId: !uid || isNaN(uid) ? undefined : uid,
@@ -34,6 +36,7 @@ export async function GET(request: NextRequest) {
       book,
       dateFrom,
       dateTo,
+      groupId: !gid || isNaN(gid) ? undefined : gid,
       sortBy,
       sortDir
     })

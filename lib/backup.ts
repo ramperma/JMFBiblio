@@ -24,7 +24,9 @@ export const APP_TABLES = new Set([
   'empr',
   'pret',
   'authors',
-  'responsability'
+  'responsability',
+  'groupe',
+  'empr_groupe'
 ])
 
 export interface BackupInfo {
@@ -178,6 +180,7 @@ export async function importFromFile(
     await dropTablesViaSql(parseResult.tables)
 
     const warnings: string[] = []
+    warnings.push(...parseResult.warnings)
     const result = await runMysqlImport(tmpParsed, true)
     warnings.push(...result.warnings)
 

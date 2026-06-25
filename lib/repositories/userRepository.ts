@@ -9,6 +9,7 @@ export interface User {
   empr_mail?: string
   empr_tel1?: string
   is_active?: boolean
+  user_groups?: string
 }
 
 let userStateInitialized = false
@@ -44,7 +45,8 @@ export const userRepository = {
       | 'empr_mail'
       | 'empr_tel1' = 'empr_nom',
     sortDir: 'asc' | 'desc' = 'asc',
-    includeInactive = false
+    includeInactive = false,
+    groupId?: number
   ) {
     await ensureUserStateTable()
 
@@ -61,6 +63,11 @@ export const userRepository = {
 
     if (!includeInactive) {
       conditions.push('COALESCE(s.is_active, 1) = 1')
+    }
+
+    if (groupId) {
+      conditions.push('u.id_empr IN (SELECT empr_id FROM empr_groupe WHERE groupe_id = ?)')
+      searchParams.push(groupId)
     }
 
     const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''
@@ -87,7 +94,11 @@ export const userRepository = {
 
     const [rows] = await conn.query(
       `SELECT u.id_empr, u.empr_nom, u.empr_prenom, u.empr_cb, u.empr_mail, u.empr_tel1,
-          COALESCE(s.is_active, 1) AS is_active
+          COALESCE(s.is_active, 1) AS is_active,
+          (SELECT GROUP_CONCAT(g.libelle_groupe SEPARATOR ', ')
+           FROM empr_groupe eg
+           JOIN groupe g ON g.id_groupe = eg.groupe_id
+           WHERE eg.empr_id = u.id_empr) AS user_groups
        FROM empr u
        LEFT JOIN app_user_state s ON s.id_empr = u.id_empr
        ${whereClause}
@@ -103,7 +114,8 @@ export const userRepository = {
       empr_cb: row.empr_cb,
       empr_mail: row.empr_mail,
       empr_tel1: row.empr_tel1,
-      is_active: row.is_active === 1
+      is_active: row.is_active === 1,
+      user_groups: row.user_groups || ''
     }))
 
     return { data, total }
@@ -256,7 +268,11 @@ export const userRepository = {
     const searchQuery = `%${query}%`
     
     const [rows] = await conn.query(
-      `SELECT id_empr, empr_nom, empr_prenom, empr_cb, empr_mail, empr_tel1
+      `SELECT id_empr, empr_nom, empr_prenom, empr_cb, empr_mail, empr_tel1,
+              (SELECT GROUP_CONCAT(g.libelle_groupe SEPARATOR ', ')
+               FROM empr_groupe eg
+               JOIN groupe g ON g.id_groupe = eg.groupe_id
+               WHERE eg.empr_id = id_empr) AS user_groups
        FROM empr
        WHERE empr_nom LIKE ? OR empr_prenom LIKE ?
        ORDER BY empr_nom, empr_prenom`,
@@ -269,7 +285,8 @@ export const userRepository = {
       empr_prenom: row.empr_prenom,
       empr_cb: row.empr_cb,
       empr_mail: row.empr_mail,
-      empr_tel1: row.empr_tel1
+      empr_tel1: row.empr_tel1,
+      user_groups: row.user_groups || ''
     }))
   }
 }

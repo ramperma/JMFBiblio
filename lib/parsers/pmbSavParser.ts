@@ -11,6 +11,7 @@ export interface PmbSavParseResult {
   skippedTables: string[]
   rowsImported: number
   rowsSkipped: number
+  warnings: string[]
 }
 
 export interface PmbSavParseOptions {
@@ -30,50 +31,92 @@ interface TableSection {
   name: string
   lines: string[]
   dateColumns: Set<string>
+  stringColumns: Set<string>
+  numericColumns: Set<string>
 }
 
 const DATE_COLUMN_REGEX = /\b(date|datetime|timestamp|year|time)\b/i
+const STRING_COLUMN_REGEX = /\b(varchar|char|text|tinytext|mediumtext|longtext|blob|tinyblob|mediumblob|longblob|enum|set|json)\b/i
+const NUMERIC_COLUMN_REGEX = /\b(int|integer|tinyint|smallint|mediumint|bigint|float|double|decimal|numeric|real|bit|bool|boolean|serial)\b/i
 
-function extractDateColumnsFromCreate(createSql: string): Set<string> {
-  const out = new Set<string>()
-  const columnRegex = /`([a-zA-Z_][a-zA-Z0-9_]*)`\s+([^,()]+?)(?=,|PRIMARY|UNIQUE|KEY|CONSTRAINT|\s*\))/gi
-  let match: RegExpExecArray | null
-  while ((match = columnRegex.exec(createSql)) !== null) {
-    const colName = match[1]
-    const colType = match[2]
-    if (DATE_COLUMN_REGEX.test(colType)) {
-      out.add(colName.toLowerCase())
-    }
-  }
-  return out
+interface ColumnTypeSets {
+  dateColumns: Set<string>
+  stringColumns: Set<string>
+  numericColumns: Set<string>
 }
 
-function sanitizeInsert(line: string, dateColumns: Set<string>): string {
-  let out = line
-  out = out.replace(/(,|\()\s*INF\s*([,)])/g, '$1 0 $2')
-  out = out.replace(/(,|\()\s*NaN\s*([,)])/g, '$1 0 $2')
-  out = out.replace(/(,|\()\s*-INF\s*([,)])/g, '$1 0 $2')
+function extractColumnTypesFromCreate(createSql: string): ColumnTypeSets {
+  const dateColumns = new Set<string>()
+  const stringColumns = new Set<string>()
+  const numericColumns = new Set<string>()
+  const columnRegex = /`([a-zA-Z_][a-zA-Z0-9_]*)`\s+(\w+)/gi
+  let match: RegExpExecArray | null
+  while ((match = columnRegex.exec(createSql)) !== null) {
+    const colName = match[1].toLowerCase()
+    const colType = match[2].toLowerCase()
+    if (DATE_COLUMN_REGEX.test(colType)) {
+      dateColumns.add(colName)
+    } else if (STRING_COLUMN_REGEX.test(colType)) {
+      stringColumns.add(colName)
+    } else if (NUMERIC_COLUMN_REGEX.test(colType)) {
+      numericColumns.add(colName)
+    }
+  }
+  return { dateColumns, stringColumns, numericColumns }
+}
 
-  if (dateColumns.size === 0) return out
-
-  const headerMatch = out.match(/^insert into\s+`?[a-zA-Z_][a-zA-Z0-9_]*`?\s*\(([^)]+)\)\s*values\s*\((.*)\)\s*;?\s*$/i)
-  if (!headerMatch) return out
+function sanitizeInsert(
+  line: string,
+  dateColumns: Set<string>,
+  stringColumns: Set<string>
+): { line: string; infInStringColumn: boolean } {
+  const headerMatch = line.match(/^insert into\s+`?[a-zA-Z_][a-zA-Z0-9_]*`?\s*\(([^)]+)\)\s*values\s*\((.*)\)\s*;?\s*$/i)
+  if (!headerMatch) {
+    let out = line
+    out = out.replace(/(,|\()\s*INF\s*([,)])/g, '$1 0 $2')
+    out = out.replace(/(,|\()\s*NaN\s*([,)])/g, '$1 0 $2')
+    out = out.replace(/(,|\()\s*-INF\s*([,)])/g, '$1 0 $2')
+    return { line: out, infInStringColumn: false }
+  }
 
   const headers = headerMatch[1].split(',').map(h => h.trim().replace(/`/g, '').toLowerCase())
   const valuesStr = headerMatch[2]
   const values = splitValues(valuesStr)
-  if (values.length !== headers.length) return out
+  if (values.length !== headers.length) {
+    let out = line
+    out = out.replace(/(,|\()\s*INF\s*([,)])/g, '$1 0 $2')
+    out = out.replace(/(,|\()\s*NaN\s*([,)])/g, '$1 0 $2')
+    out = out.replace(/(,|\()\s*-INF\s*([,)])/g, '$1 0 $2')
+    return { line: out, infInStringColumn: false }
+  }
 
   let changed = false
+  let infInStringColumn = false
+
   for (let i = 0; i < headers.length; i++) {
-    if (dateColumns.has(headers[i]) && values[i].trim() === "''") {
+    const h = headers[i]
+    const v = values[i].trim()
+
+    if (v === 'INF' || v === 'NaN' || v === '-INF') {
+      if (stringColumns.has(h)) {
+        values[i] = "''"
+        infInStringColumn = true
+        changed = true
+      } else {
+        values[i] = '0'
+        changed = true
+      }
+      continue
+    }
+
+    if (dateColumns.has(h) && v === "''") {
       values[i] = 'NULL'
       changed = true
     }
   }
 
-  if (!changed) return out
-  return out.replace(valuesStr, values.join(', '))
+  if (!changed) return { line, infInStringColumn }
+  return { line: line.replace(valuesStr, values.join(', ')), infInStringColumn }
 }
 
 function splitValues(s: string): string[] {
@@ -178,7 +221,7 @@ export async function parsePmbSav(
         const keep = !onlyTables || onlyTables.has(tableName)
         if (keep) {
           if (!sections.has(tableName)) {
-            sections.set(tableName, { name: tableName, lines: [], dateColumns: new Set() })
+            sections.set(tableName, { name: tableName, lines: [], dateColumns: new Set(), stringColumns: new Set(), numericColumns: new Set() })
             order.push(tableName)
           }
           currentSection = sections.get(tableName)!
@@ -204,7 +247,10 @@ export async function parsePmbSav(
     const section = sections.get(tableName)!
     for (const line of section.lines) {
       if (line.startsWith('CREATE TABLE')) {
-        section.dateColumns = extractDateColumnsFromCreate(line)
+        const types = extractColumnTypesFromCreate(line)
+        section.dateColumns = types.dateColumns
+        section.stringColumns = types.stringColumns
+        section.numericColumns = types.numericColumns
         break
       }
     }
@@ -212,6 +258,8 @@ export async function parsePmbSav(
 
   let rowsImported = 0
   let rowsSkipped = 0
+  const warnings: string[] = []
+  const varcharZeroTracker = new Map<string, { total: number; zeroed: number }>()
 
   const writeLn = (s: string): void => {
     writeStream.write(s + '\n')
@@ -234,10 +282,36 @@ export async function parsePmbSav(
         continue
       }
       if (/^insert into/i.test(line)) {
-        const before = line
-        const cleaned = sanitizeInsert(line, section.dateColumns)
+        const result = sanitizeInsert(line, section.dateColumns, section.stringColumns)
+        const cleaned = result.line
         writeLn(cleaned)
-        if (cleaned !== before) {
+
+        if (section.stringColumns.size > 0) {
+          const headerMatch = line.match(/^insert into\s+`?[a-zA-Z_][a-zA-Z0-9_]*`?\s*\(([^)]+)\)\s*values\s*\((.*)\)\s*;?\s*$/i)
+          if (headerMatch) {
+            const headers = headerMatch[1].split(',').map(h => h.trim().replace(/`/g, '').toLowerCase())
+            const vals = splitValues(headerMatch[2])
+            if (vals.length === headers.length) {
+              for (let i = 0; i < headers.length; i++) {
+                if (section.stringColumns.has(headers[i])) {
+                  const key = `${tableName}.${headers[i]}`
+                  const tracker = varcharZeroTracker.get(key) || { total: 0, zeroed: 0 }
+                  tracker.total++
+                  if (vals[i].trim() === '0') {
+                    tracker.zeroed++
+                  }
+                  varcharZeroTracker.set(key, tracker)
+                }
+              }
+            }
+          }
+        }
+
+        if (result.infInStringColumn) {
+          warnings.push(`Tabla '${tableName}': INF/NaN encontrado en columna de texto, convertido a vacio`)
+        }
+
+        if (cleaned !== line) {
           if (/,?\s*'?'?\s*\)\s*;?\s*$/i.test(cleaned)) {
             rowsImported++
           } else {
@@ -264,6 +338,21 @@ export async function parsePmbSav(
     })
   })
 
+  const zeroedColumnsByTable = new Map<string, string[]>()
+  for (const [col, tracker] of varcharZeroTracker) {
+    if (tracker.total >= 10 && tracker.zeroed / tracker.total >= 0.95) {
+      const [table, column] = col.split('.')
+      const cols = zeroedColumnsByTable.get(table) || []
+      cols.push(`${column} (${tracker.zeroed}/${tracker.total})`)
+      zeroedColumnsByTable.set(table, cols)
+    }
+  }
+  for (const [table, cols] of zeroedColumnsByTable) {
+    warnings.push(
+      `Tabla '${table}': ${cols.length} columna(s) VARCHAR con >=95% valores "0" — bug de exportacion PMB .sav: ${cols.join(', ')}`
+    )
+  }
+
   const outputStat = await stat(outputPath)
   return {
     tablesProcessed,
@@ -273,7 +362,8 @@ export async function parsePmbSav(
     tables,
     skippedTables,
     rowsImported,
-    rowsSkipped
+    rowsSkipped,
+    warnings
   }
 }
 

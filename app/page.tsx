@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import styles from './page.module.css'
 
 type SortDir = 'asc' | 'desc'
@@ -21,6 +21,7 @@ interface User {
   empr_mail?: string
   empr_tel1?: string
   is_active?: boolean
+  user_groups?: string
 }
 
 interface Loan {
@@ -34,6 +35,7 @@ interface Loan {
   empr_nom: string
   empr_prenom?: string
   expl_cb?: string
+  borrower_groups?: string
 }
 
 interface AvailableCopy {
@@ -90,7 +92,7 @@ interface TopBorrower {
   active_loan_count: number
 }
 
-type Tab = 'books' | 'users' | 'loans' | 'config' | 'stats'
+type Tab = 'books' | 'users' | 'groups' | 'loans' | 'config' | 'stats'
 
 const initialPagination: PaginationMeta = {
   page: 1,
@@ -100,6 +102,7 @@ const initialPagination: PaginationMeta = {
 }
 
 export default function Home() {
+  const explCbRef = useRef<HTMLInputElement>(null)
   const [session, setSession] = useState<SessionUser | null>(null)
   const [authLoading, setAuthLoading] = useState(true)
 
@@ -139,7 +142,8 @@ export default function Home() {
     book: '',
     dateFrom: '',
     dateTo: '',
-    activeOnly: false
+    activeOnly: false,
+    groupId: ''
   })
 
   const [newBook, setNewBook] = useState({ tit1: '', year: '', code: '' })
@@ -159,6 +163,17 @@ export default function Home() {
   const [loanCopyResults, setLoanCopyResults] = useState<AvailableCopy[]>([])
   const [loanFeedback, setLoanFeedback] = useState('')
   const [maxRenewals, setMaxRenewals] = useState(2)
+
+  const [groups, setGroups] = useState<{ id_groupe: number; libelle_groupe: string }[]>([])
+  const [userGroupFilter, setUserGroupFilter] = useState('')
+  const [loanUserGroupFilter, setLoanUserGroupFilter] = useState('')
+
+  const [selectedGroup, setSelectedGroup] = useState<number | null>(null)
+  const [selectedGroupUsers, setSelectedGroupUsers] = useState<User[]>([])
+  const [selectedGroupLoading, setSelectedGroupLoading] = useState(false)
+  const [newGroupName, setNewGroupName] = useState('')
+  const [groupUsersSearchQuery, setGroupUsersSearchQuery] = useState('')
+  const [groupUsersSearchResults, setGroupUsersSearchResults] = useState<User[]>([])
 
   const [settings, setSettings] = useState<AppSetting[]>([])
   const [settingsMessage, setSettingsMessage] = useState('')
@@ -202,6 +217,44 @@ export default function Home() {
     }
     check()
   }, [])
+
+  useEffect(() => {
+    if (!session) return
+    const fetchGroups = async () => {
+      try {
+        const res = await fetch('/api/groups')
+        const data = await res.json()
+        if (data.success) {
+          setGroups(data.data || [])
+        }
+      } catch (error) {
+        console.error('Error loading groups:', error)
+      }
+    }
+    fetchGroups()
+  }, [session])
+
+  useEffect(() => {
+    if (!session || activeTab !== 'groups' || selectedGroup === null) {
+      setSelectedGroupUsers([])
+      return
+    }
+    const loadGroupUsers = async () => {
+      setSelectedGroupLoading(true)
+      try {
+        const res = await fetch(`/api/users?groupId=${selectedGroup}&pageSize=200`)
+        const data = await res.json()
+        if (data.success) {
+          setSelectedGroupUsers(data.data || [])
+        }
+      } catch (error) {
+        console.error('Error loading group users:', error)
+      } finally {
+        setSelectedGroupLoading(false)
+      }
+    }
+    loadGroupUsers()
+  }, [session, activeTab, selectedGroup, refreshKey])
 
   useEffect(() => {
     if (!session || activeTab !== 'books') return
@@ -265,6 +318,9 @@ export default function Home() {
         if (userQuery) {
           params.set('q', userQuery)
         }
+        if (userGroupFilter) {
+          params.set('groupId', userGroupFilter)
+        }
         const res = await fetch(`/api/users?${params.toString()}`)
         const data = await res.json()
         if (cancelled) return
@@ -291,6 +347,7 @@ export default function Home() {
     userSortBy,
     userSortDir,
     userQuery,
+    userGroupFilter,
     includeInactiveUsers,
     refreshKey
   ])
@@ -319,6 +376,9 @@ export default function Home() {
         }
         if (loanFilters.dateTo) {
           params.set('dateTo', loanFilters.dateTo)
+        }
+        if (loanFilters.groupId) {
+          params.set('groupId', loanFilters.groupId)
         }
         const res = await fetch(`/api/loans?${params.toString()}`)
         const data = await res.json()
@@ -350,6 +410,7 @@ export default function Home() {
     loanFilters.book,
     loanFilters.dateFrom,
     loanFilters.dateTo,
+    loanFilters.groupId,
     refreshKey
   ])
 
@@ -496,8 +557,17 @@ export default function Home() {
   }
 
   const searchLoanUsers = async () => {
-    if (!loanUserQuery.trim()) return
-    const res = await fetch(`/api/users?q=${encodeURIComponent(loanUserQuery)}&pageSize=10`)
+    if (!loanUserQuery.trim() && !loanUserGroupFilter) return
+    const params = new URLSearchParams({
+      pageSize: '10'
+    })
+    if (loanUserQuery.trim()) {
+      params.set('q', loanUserQuery)
+    }
+    if (loanUserGroupFilter) {
+      params.set('groupId', loanUserGroupFilter)
+    }
+    const res = await fetch(`/api/users?${params.toString()}`)
     const data = await res.json()
     setLoanUserResults(data.data || [])
   }
@@ -507,6 +577,108 @@ export default function Home() {
     const res = await fetch(`/api/books/copies?q=${encodeURIComponent(loanCopyQuery)}`)
     const data = await res.json()
     setLoanCopyResults(data.data || [])
+  }
+
+  const handleDetailsToggle = (e: React.SyntheticEvent<HTMLDetailsElement>) => {
+    if (e.currentTarget.open) {
+      setTimeout(() => {
+        explCbRef.current?.focus()
+      }, 50)
+    }
+  }
+
+  const handleCreateGroup = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!newGroupName.trim()) return
+    const res = await fetch('/api/groups', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ libelle: newGroupName })
+    })
+    const data = await res.json()
+    if (data.success) {
+      setNewGroupName('')
+      setRefreshKey(k => k + 1)
+      const gRes = await fetch('/api/groups')
+      const gData = await gRes.json()
+      if (gData.success) setGroups(gData.data || [])
+    } else {
+      alert(data.error || 'Error al crear grupo')
+    }
+  }
+
+  const handleRenameGroup = async (id: number, currentLibelle: string) => {
+    const libelle = prompt('Nuevo nombre del grupo:', currentLibelle)
+    if (libelle === null || !libelle.trim() || libelle.trim() === currentLibelle) return
+    const res = await fetch(`/api/groups/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ libelle })
+    })
+    const data = await res.json()
+    if (data.success) {
+      setRefreshKey(k => k + 1)
+      const gRes = await fetch('/api/groups')
+      const gData = await gRes.json()
+      if (gData.success) setGroups(gData.data || [])
+    } else {
+      alert(data.error || 'Error al renombrar grupo')
+    }
+  }
+
+  const handleDeleteGroup = async (id: number, name: string) => {
+    if (!confirm(`¿Seguro que deseas eliminar el grupo "${name}"?\nEsta acción desasociará a todos los alumnos del grupo.`)) return
+    const res = await fetch(`/api/groups/${id}`, {
+      method: 'DELETE'
+    })
+    const data = await res.json()
+    if (data.success) {
+      if (selectedGroup === id) setSelectedGroup(null)
+      setRefreshKey(k => k + 1)
+      const gRes = await fetch('/api/groups')
+      const gData = await gRes.json()
+      if (gData.success) setGroups(gData.data || [])
+    } else {
+      alert(data.error || 'Error al eliminar grupo')
+    }
+  }
+
+  const handleSearchGroupUsers = async () => {
+    if (!groupUsersSearchQuery.trim()) return
+    const res = await fetch(`/api/users?q=${encodeURIComponent(groupUsersSearchQuery)}&pageSize=10`)
+    const data = await res.json()
+    setGroupUsersSearchResults(data.data || [])
+  }
+
+  const handleAddUserToGroup = async (userId: number) => {
+    if (selectedGroup === null) return
+    const res = await fetch(`/api/groups/${selectedGroup}/members`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId })
+    })
+    const data = await res.json()
+    if (data.success) {
+      setGroupUsersSearchQuery('')
+      setGroupUsersSearchResults([])
+      setRefreshKey(k => k + 1)
+    } else {
+      alert(data.error || 'Error al agregar alumno al grupo')
+    }
+  }
+
+  const handleRemoveUserFromGroup = async (userId: number) => {
+    if (selectedGroup === null) return
+    if (!confirm('¿Seguro que deseas quitar a este usuario del grupo?')) return
+    const res = await fetch(`/api/groups/${selectedGroup}/members?userId=${userId}`, {
+      method: 'DELETE'
+    })
+    const data = await res.json()
+    if (data.success) {
+      setRefreshKey(k => k + 1)
+    } else {
+      alert(data.error || 'Error al remover alumno del grupo')
+    }
   }
 
   const createLoan = async (e: React.FormEvent) => {
@@ -790,6 +962,9 @@ export default function Home() {
         <button className={`${styles.navButton} ${activeTab === 'users' ? styles.active : ''}`} onClick={() => setActiveTab('users')}>
           Usuarios
         </button>
+        <button className={`${styles.navButton} ${activeTab === 'groups' ? styles.active : ''}`} onClick={() => setActiveTab('groups')}>
+          Grupos
+        </button>
         <button className={`${styles.navButton} ${activeTab === 'loans' ? styles.active : ''}`} onClick={() => setActiveTab('loans')}>
           Prestamos
         </button>
@@ -911,6 +1086,18 @@ export default function Home() {
                   setUsersPagination(prev => ({ ...prev, page: 1 }))
                 }}
               />
+              <select
+                value={userGroupFilter}
+                onChange={(e) => {
+                  setUserGroupFilter(e.target.value)
+                  setUsersPagination(prev => ({ ...prev, page: 1 }))
+                }}
+              >
+                <option value="">Todos los grupos</option>
+                {groups.map(g => (
+                  <option key={g.id_groupe} value={g.id_groupe}>{g.libelle_groupe}</option>
+                ))}
+              </select>
               <label>
                 <input
                   type="checkbox"
@@ -938,6 +1125,7 @@ export default function Home() {
                         <th className={styles.sortableHeader} onClick={() => toggleSort(userSortBy, userSortDir, setUserSortBy, setUserSortDir, 'empr_cb')}>Carne{sortArrow(userSortBy === 'empr_cb', userSortDir)}</th>
                         <th className={styles.sortableHeader} onClick={() => toggleSort(userSortBy, userSortDir, setUserSortBy, setUserSortDir, 'empr_nom')}>Apellido{sortArrow(userSortBy === 'empr_nom', userSortDir)}</th>
                     <th className={styles.sortableHeader} onClick={() => toggleSort(userSortBy, userSortDir, setUserSortBy, setUserSortDir, 'empr_prenom')}>Nombre{sortArrow(userSortBy === 'empr_prenom', userSortDir)}</th>
+                    <th>Grupo</th>
                     <th className={styles.sortableHeader} onClick={() => toggleSort(userSortBy, userSortDir, setUserSortBy, setUserSortDir, 'empr_mail')}>Email{sortArrow(userSortBy === 'empr_mail', userSortDir)}</th>
                     <th className={styles.sortableHeader} onClick={() => toggleSort(userSortBy, userSortDir, setUserSortBy, setUserSortDir, 'empr_tel1')}>Telefono{sortArrow(userSortBy === 'empr_tel1', userSortDir)}</th>
                     <th>Estado</th>
@@ -951,6 +1139,7 @@ export default function Home() {
                       <td>{user.empr_cb || 'N/A'}</td>
                       <td>{user.empr_nom}</td>
                       <td>{user.empr_prenom || 'N/A'}</td>
+                      <td>{user.user_groups || 'Sin grupo'}</td>
                       <td>{user.empr_mail || 'N/A'}</td>
                       <td>{user.empr_tel1 || 'N/A'}</td>
                       <td>{user.is_active ? 'Activo' : 'Inactivo'}</td>
@@ -981,89 +1170,239 @@ export default function Home() {
           </section>
         )}
 
+        {activeTab === 'groups' && (
+          <section>
+            <h2>Gestión de Grupos</h2>
+            <div className={styles.configGrid}>
+              <div className={styles.configCard}>
+                <h3>Listado de Grupos</h3>
+                <form className={styles.inlineForm} onSubmit={handleCreateGroup}>
+                  <input
+                    placeholder="Nuevo grupo (ej: 2º ESO)"
+                    value={newGroupName}
+                    onChange={(e) => setNewGroupName(e.target.value)}
+                    required
+                  />
+                  <button type="submit">+ Crear Grupo</button>
+                </form>
+
+                <div className={styles.tableWrapper}>
+                  <div className={styles.table}>
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Grupo</th>
+                          <th>Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {groups.length === 0 && (
+                          <tr><td colSpan={2}>No hay grupos creados</td></tr>
+                        )}
+                        {groups.map(g => (
+                          <tr
+                            key={g.id_groupe}
+                            className={selectedGroup === g.id_groupe ? styles.selectedResult : ''}
+                            style={{ cursor: 'pointer' }}
+                            onClick={() => setSelectedGroup(g.id_groupe)}
+                          >
+                            <td style={{ fontWeight: selectedGroup === g.id_groupe ? 'bold' : 'normal' }}>
+                              {g.libelle_groupe}
+                            </td>
+                            <td>
+                              <div className={styles.actionsRow} onClick={(e) => e.stopPropagation()}>
+                                <button onClick={() => handleRenameGroup(g.id_groupe, g.libelle_groupe)}>Renombrar</button>
+                                <button className={styles.dangerButton} onClick={() => handleDeleteGroup(g.id_groupe, g.libelle_groupe)}>Eliminar</button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+
+              <div className={styles.configCard}>
+                {selectedGroup === null ? (
+                  <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-secondary)' }}>
+                    Selecciona un grupo de la lista para gestionar sus alumnos
+                  </div>
+                ) : (
+                  <>
+                    <h3>
+                      Alumnos de: <strong>{groups.find(g => g.id_groupe === selectedGroup)?.libelle_groupe || ''}</strong>
+                    </h3>
+
+                    <div style={{ marginBottom: '1.5rem', paddingBottom: '1.5rem', borderBottom: '1px solid var(--border)' }}>
+                      <label style={{ display: 'block', fontWeight: 600, fontSize: '0.9rem', marginBottom: '0.5rem' }}>
+                        Agregar alumno al grupo
+                      </label>
+                      <div className={styles.searchInline}>
+                        <input
+                          placeholder="Buscar alumno por nombre/apellido..."
+                          value={groupUsersSearchQuery}
+                          onChange={(e) => setGroupUsersSearchQuery(e.target.value)}
+                          onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleSearchGroupUsers())}
+                        />
+                        <button type="button" onClick={handleSearchGroupUsers}>Buscar</button>
+                      </div>
+                      {groupUsersSearchResults.length > 0 && (
+                        <ul className={styles.searchResultList} style={{ marginTop: '0.5rem' }}>
+                          {groupUsersSearchResults.map(u => (
+                            <li
+                              key={u.id_empr}
+                              onClick={() => handleAddUserToGroup(u.id_empr)}
+                            >
+                              {u.empr_nom} {u.empr_prenom} {u.user_groups ? `(${u.user_groups})` : ''} &mdash; carnet: {u.empr_cb || 'N/A'} (ID: {u.id_empr})
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+
+                    <div className={styles.tableWrapper}>
+                      {selectedGroupLoading ? (
+                        <div className={styles.loadingFirst}>Cargando alumnos...</div>
+                      ) : (
+                        <div className={styles.table}>
+                          <table>
+                            <thead>
+                              <tr>
+                                <th>ID</th>
+                                <th>Nombre</th>
+                                <th>Acción</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {selectedGroupUsers.length === 0 && (
+                                <tr><td colSpan={3}>No hay alumnos asociados a este grupo</td></tr>
+                              )}
+                              {selectedGroupUsers.map(u => (
+                                <tr key={u.id_empr}>
+                                  <td>{u.id_empr}</td>
+                                  <td>{u.empr_nom}{u.empr_prenom ? `, ${u.empr_prenom}` : ''}</td>
+                                  <td>
+                                    <button
+                                      className={styles.dangerButton}
+                                      onClick={() => handleRemoveUserFromGroup(u.id_empr)}
+                                      style={{ padding: '0.4rem 0.6rem', fontSize: '0.8rem' }}
+                                    >
+                                      Quitar
+                                    </button>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          </section>
+        )}
+
         {activeTab === 'loans' && (
           <section>
             <h2>Prestamos</h2>
 
             {/* Nuevo préstamo */}
-            <details className={styles.newLoanPanel}>
+            <details className={styles.newLoanPanel} onToggle={handleDetailsToggle}>
               <summary>+ Nuevo prestamo</summary>
               <form onSubmit={createLoan} className={styles.newLoanForm}>
-                <div className={styles.loanSearchBlock}>
-                  <label>Usuario</label>
-                  <div className={styles.searchInline}>
+                <div className={styles.loanFormFields}>
+                  <div className={styles.loanSearchBlock}>
+                    <label>Usuario</label>
+                    <div className={styles.searchInline}>
+                      <input
+                        placeholder="Buscar por nombre..."
+                        value={loanUserQuery}
+                        onChange={(e) => setLoanUserQuery(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), searchLoanUsers())}
+                      />
+                      <select
+                        value={loanUserGroupFilter}
+                        onChange={(e) => setLoanUserGroupFilter(e.target.value)}
+                        style={{ maxWidth: '140px' }}
+                      >
+                        <option value="">Cualquier grupo</option>
+                        {groups.map(g => (
+                          <option key={g.id_groupe} value={g.id_groupe}>{g.libelle_groupe}</option>
+                        ))}
+                      </select>
+                      <button type="button" onClick={searchLoanUsers}>Buscar</button>
+                    </div>
+                    {loanUserResults.length > 0 && (
+                      <ul className={styles.searchResultList}>
+                        {loanUserResults.map(u => (
+                          <li
+                            key={u.id_empr}
+                            className={newLoan.id_empr === String(u.id_empr) ? styles.selectedResult : ''}
+                            onClick={() => {
+                              setNewLoan(prev => ({ ...prev, id_empr: String(u.id_empr) }))
+                              setLoanUserResults([])
+                              setLoanUserQuery(`${u.empr_nom}, ${u.empr_prenom || ''} (ID: ${u.id_empr})`)
+                            }}
+                          >
+                            {u.empr_nom} {u.empr_prenom} {u.user_groups ? `(${u.user_groups})` : ''} &mdash; carnet: {u.empr_cb || 'N/A'} (ID: {u.id_empr})
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                     <input
-                      placeholder="Buscar por nombre..."
-                      value={loanUserQuery}
-                      onChange={(e) => setLoanUserQuery(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), searchLoanUsers())}
+                      placeholder="ID usuario"
+                      value={newLoan.id_empr}
+                      onChange={(e) => setNewLoan(prev => ({ ...prev, id_empr: e.target.value }))}
+                      required
+                      style={{ marginTop: '0.4rem', width: '120px' }}
                     />
-                    <button type="button" onClick={searchLoanUsers}>Buscar</button>
                   </div>
-                  {loanUserResults.length > 0 && (
-                    <ul className={styles.searchResultList}>
-                      {loanUserResults.map(u => (
-                        <li
-                          key={u.id_empr}
-                          className={newLoan.id_empr === String(u.id_empr) ? styles.selectedResult : ''}
-                          onClick={() => {
-                            setNewLoan(prev => ({ ...prev, id_empr: String(u.id_empr) }))
-                            setLoanUserResults([])
-                            setLoanUserQuery(`${u.empr_nom}, ${u.empr_prenom || ''} (ID: ${u.id_empr})`)
-                          }}
-                        >
-                          {u.empr_nom} {u.empr_prenom} &mdash; carnet: {u.empr_cb || 'N/A'} (ID: {u.id_empr})
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                  <input
-                    placeholder="ID usuario"
-                    value={newLoan.id_empr}
-                    onChange={(e) => setNewLoan(prev => ({ ...prev, id_empr: e.target.value }))}
-                    required
-                    style={{ marginTop: '0.4rem', width: '120px' }}
-                  />
+
+                  <div className={styles.loanSearchBlock}>
+                    <label>Ejemplar (codigo de barras o titulo)</label>
+                    <div className={styles.searchInline}>
+                      <input
+                        placeholder="Buscar ejemplar disponible..."
+                        value={loanCopyQuery}
+                        onChange={(e) => setLoanCopyQuery(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), searchLoanCopies())}
+                      />
+                      <button type="button" onClick={searchLoanCopies}>Buscar</button>
+                    </div>
+                    {loanCopyResults.length > 0 && (
+                      <ul className={styles.searchResultList}>
+                        {loanCopyResults.map(c => (
+                          <li
+                            key={c.expl_id}
+                            className={newLoan.expl_cb === c.expl_cb ? styles.selectedResult : ''}
+                            onClick={() => {
+                              setNewLoan(prev => ({ ...prev, expl_cb: c.expl_cb }))
+                              setLoanCopyResults([])
+                              setLoanCopyQuery(`${c.tit1} (${c.expl_cb})`)
+                            }}
+                          >
+                            {c.tit1} &mdash; codigo: {c.expl_cb}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    <input
+                      ref={explCbRef}
+                      placeholder="Codigo barras"
+                      value={newLoan.expl_cb}
+                      onChange={(e) => setNewLoan(prev => ({ ...prev, expl_cb: e.target.value }))}
+                      required
+                      style={{ marginTop: '0.4rem', width: '160px' }}
+                    />
+                  </div>
                 </div>
 
-                <div className={styles.loanSearchBlock}>
-                  <label>Ejemplar (codigo de barras o titulo)</label>
-                  <div className={styles.searchInline}>
-                    <input
-                      placeholder="Buscar ejemplar disponible..."
-                      value={loanCopyQuery}
-                      onChange={(e) => setLoanCopyQuery(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), searchLoanCopies())}
-                    />
-                    <button type="button" onClick={searchLoanCopies}>Buscar</button>
-                  </div>
-                  {loanCopyResults.length > 0 && (
-                    <ul className={styles.searchResultList}>
-                      {loanCopyResults.map(c => (
-                        <li
-                          key={c.expl_id}
-                          className={newLoan.expl_cb === c.expl_cb ? styles.selectedResult : ''}
-                          onClick={() => {
-                            setNewLoan(prev => ({ ...prev, expl_cb: c.expl_cb }))
-                            setLoanCopyResults([])
-                            setLoanCopyQuery(`${c.tit1} (${c.expl_cb})`)
-                          }}
-                        >
-                          {c.tit1} &mdash; codigo: {c.expl_cb}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                  <input
-                    placeholder="Codigo barras"
-                    value={newLoan.expl_cb}
-                    onChange={(e) => setNewLoan(prev => ({ ...prev, expl_cb: e.target.value }))}
-                    required
-                    style={{ marginTop: '0.4rem', width: '160px' }}
-                  />
+                <div className={styles.loanFormActions}>
+                  <button type="submit" className={styles.primaryButton}>Registrar Prestamo</button>
                 </div>
-
-                <button type="submit" className={styles.primaryButton}>Registrar Prestamo</button>
               </form>
               {loanFeedback && (
                 <p className={loanFeedback.startsWith('Error') ? styles.errorText : styles.successText}>
@@ -1075,6 +1414,15 @@ export default function Home() {
             <div className={styles.filtersRow}>
               <input placeholder="Buscar usuario" value={loanFilters.borrower} onChange={(e) => setLoanFilters(prev => ({ ...prev, borrower: e.target.value }))} />
               <input placeholder="Buscar libro" value={loanFilters.book} onChange={(e) => setLoanFilters(prev => ({ ...prev, book: e.target.value }))} />
+              <select
+                value={loanFilters.groupId}
+                onChange={(e) => setLoanFilters(prev => ({ ...prev, groupId: e.target.value }))}
+              >
+                <option value="">Todos los grupos</option>
+                {groups.map(g => (
+                  <option key={g.id_groupe} value={g.id_groupe}>{g.libelle_groupe}</option>
+                ))}
+              </select>
               <input type="date" value={loanFilters.dateFrom} onChange={(e) => setLoanFilters(prev => ({ ...prev, dateFrom: e.target.value }))} />
               <input type="date" value={loanFilters.dateTo} onChange={(e) => setLoanFilters(prev => ({ ...prev, dateTo: e.target.value }))} />
               <label>
@@ -1097,6 +1445,7 @@ export default function Home() {
                         <th className={styles.sortableHeader} onClick={() => toggleSort(loanSortBy, loanSortDir, setLoanSortBy, setLoanSortDir, 'pret_id')}>Ejpl{sortArrow(loanSortBy === 'pret_id', loanSortDir)}</th>
                         <th className={styles.sortableHeader} onClick={() => toggleSort(loanSortBy, loanSortDir, setLoanSortBy, setLoanSortDir, 'tit1')}>Libro{sortArrow(loanSortBy === 'tit1', loanSortDir)}</th>
                     <th className={styles.sortableHeader} onClick={() => toggleSort(loanSortBy, loanSortDir, setLoanSortBy, setLoanSortDir, 'empr_nom')}>Usuario{sortArrow(loanSortBy === 'empr_nom', loanSortDir)}</th>
+                    <th>Grupo</th>
                     <th className={styles.sortableHeader} onClick={() => toggleSort(loanSortBy, loanSortDir, setLoanSortBy, setLoanSortDir, 'pret_date')}>Fecha{sortArrow(loanSortBy === 'pret_date', loanSortDir)}</th>
                     <th className={styles.sortableHeader} onClick={() => toggleSort(loanSortBy, loanSortDir, setLoanSortBy, setLoanSortDir, 'pret_retour')}>Vence{sortArrow(loanSortBy === 'pret_retour', loanSortDir)}</th>
                     <th>Renov.</th>
@@ -1111,6 +1460,7 @@ export default function Home() {
                         <td>{loan.pret_idexpl}</td>
                         <td title={loan.expl_cb}>{loan.tit1}</td>
                         <td>{loan.empr_nom}{loan.empr_prenom ? `, ${loan.empr_prenom}` : ''}</td>
+                        <td>{loan.borrower_groups || 'Sin grupo'}</td>
                         <td>{new Date(loan.pret_date).toLocaleDateString('es-ES')}</td>
                         <td>{loan.pret_retour ? new Date(loan.pret_retour).toLocaleDateString('es-ES') : 'N/A'}</td>
                         <td>{loan.cpt_prolongation}/{maxRenewals}</td>
@@ -1205,15 +1555,15 @@ export default function Home() {
                 </div>
                 {paginator(configUsersPagination, setConfigUsersPagination)}
               </div>
+            </div>
 
-            <div className={styles.configCard}>
+            <div className={styles.configCard} style={{ marginTop: '1.5rem' }}>
               <h3>Mantenimiento de BD</h3>
               <p className={styles.configHint}>
                 Solo admin. Realiza copia de seguridad, reinicia la BD o importa un archivo PMB (.sav o mysqldump).
               </p>
 
               <BackupSection />
-            </div>
             </div>
           </section>
         )}
@@ -1310,32 +1660,50 @@ export default function Home() {
 }
 
 function BackupSection() {
+  interface DbLog {
+    timestamp: string
+    type: 'info' | 'success' | 'warning' | 'error'
+    text: string
+  }
+
   const [backups, setBackups] = useState<Array<{ name: string; sizeBytes: number; createdAt: string }>>([])
   const [working, setWorking] = useState(false)
-  const [message, setMessage] = useState('')
   const [confirmReset, setConfirmReset] = useState('')
   const [confirmImport, setConfirmImport] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [importToken, setImportToken] = useState('')
   const [resetToken, setResetToken] = useState('')
-  const [confirmUsers, setConfirmUsers] = useState('')
-  const [importUsersToken, setImportUsersToken] = useState('')
+  const [dbLogs, setDbLogs] = useState<DbLog[]>([])
+  const consoleEndRef = useRef<HTMLDivElement>(null)
 
-  const loadBackups = async () => {
+  const addLog = (text: string, type: 'info' | 'success' | 'warning' | 'error' = 'info') => {
+    const timestamp = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    setDbLogs(prev => [...prev, { timestamp, type, text }])
+  }
+
+  useEffect(() => {
+    if (consoleEndRef.current) {
+      consoleEndRef.current.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [dbLogs])
+
+  const loadBackups = useCallback(async () => {
     try {
       const res = await fetch('/api/config/backup')
       const data = await res.json()
       if (data.success) setBackups(data.data)
     } catch {
-      setMessage('Error al listar backups')
+      addLog('Error al listar copias de seguridad de la base de datos', 'error')
     }
-  }
+  }, [])
 
-  useEffect(() => { loadBackups() }, [])
+  useEffect(() => {
+    loadBackups()
+  }, [loadBackups])
 
   const doCreate = async () => {
     setWorking(true)
-    setMessage('')
+    addLog('Iniciando creación de copia de seguridad de la base de datos...', 'info')
     try {
       const res = await fetch('/api/config/backup', {
         method: 'POST',
@@ -1344,13 +1712,13 @@ function BackupSection() {
       })
       const data = await res.json()
       if (data.success) {
-        setMessage('Backup creado: ' + data.data.name)
+        addLog(`Copia de seguridad creada correctamente: ${data.data.name}`, 'success')
         loadBackups()
       } else {
-        setMessage('Error: ' + data.error)
+        addLog(`Error al crear copia de seguridad: ${data.error}`, 'error')
       }
     } catch (e) {
-      setMessage('Error: ' + (e as Error).message)
+      addLog(`Error al crear copia de seguridad: ${(e as Error).message}`, 'error')
     } finally {
       setWorking(false)
     }
@@ -1359,15 +1727,18 @@ function BackupSection() {
   const doDelete = async (name: string) => {
     if (!confirm('Borrar backup ' + name + '?')) return
     setWorking(true)
+    addLog(`Eliminando copia de seguridad: ${name}...`, 'info')
     try {
       const res = await fetch('/api/config/backup?name=' + encodeURIComponent(name), { method: 'DELETE' })
       const data = await res.json()
       if (data.success) {
-        setMessage('Borrado')
+        addLog(`Copia de seguridad eliminada con éxito: ${name}`, 'success')
         loadBackups()
       } else {
-        setMessage('Error: ' + data.error)
+        addLog(`Error al eliminar copia de seguridad: ${data.error}`, 'error')
       }
+    } catch (e) {
+      addLog(`Error al eliminar copia de seguridad: ${(e as Error).message}`, 'error')
     } finally {
       setWorking(false)
     }
@@ -1380,20 +1751,28 @@ function BackupSection() {
       setResetToken(data.data.token)
       return data.data.token as string
     }
-    setMessage('Error al generar token: ' + data.error)
+    addLog('Error al generar token de confirmación para reiniciar: ' + data.error, 'error')
     return null
   }
 
   const doReset = async () => {
     if (confirmReset.trim().toUpperCase() !== 'BORRAR') {
-      setMessage('Escribe BORRAR para confirmar')
+      addLog('Confirmación de reinicio fallida: Debes escribir "BORRAR" en el campo de confirmación', 'warning')
       return
     }
+    if (!confirmPassword) {
+      addLog('Confirmación de reinicio fallida: Introduce tu contraseña de administrador', 'warning')
+      return
+    }
+    addLog('Solicitando token para reiniciar base de datos...', 'info')
     const token = resetToken || await getResetToken()
     if (!token) return
-    if (!confirm('Esta operacion borra TODOS los datos PMB. Continuar?')) return
+    if (!confirm('Esta operación borrará TODOS los datos PMB. ¿Continuar?')) {
+      addLog('Reinicio de base de datos cancelado por el usuario', 'info')
+      return
+    }
     setWorking(true)
-    setMessage('')
+    addLog('Reiniciando base de datos...', 'info')
     try {
       const res = await fetch('/api/config/backup/reset', {
         method: 'POST',
@@ -1402,14 +1781,16 @@ function BackupSection() {
       })
       const data = await res.json()
       if (data.success) {
-        setMessage('BD reiniciada. Tablas borradas: ' + data.data.tablesDropped.length)
+        addLog(`Base de datos reiniciada con éxito. Tablas eliminadas: ${data.data.tablesDropped.join(', ')}`, 'success')
         setResetToken('')
         setConfirmReset('')
         setConfirmPassword('')
         loadBackups()
       } else {
-        setMessage('Error: ' + data.error)
+        addLog(`Error al reiniciar base de datos: ${data.error}`, 'error')
       }
+    } catch (e) {
+      addLog(`Error al reiniciar base de datos: ${(e as Error).message}`, 'error')
     } finally {
       setWorking(false)
     }
@@ -1422,7 +1803,7 @@ function BackupSection() {
       setImportToken(data.data.token)
       return data.data.token as string
     }
-    setMessage('Error al generar token: ' + data.error)
+    addLog('Error al generar token de confirmación para importar: ' + data.error, 'error')
     return null
   }
 
@@ -1432,18 +1813,26 @@ function BackupSection() {
     const fileInput = form.elements.namedItem('file') as HTMLInputElement
     const file = fileInput.files?.[0]
     if (!file) {
-      setMessage('Selecciona un archivo')
+      addLog('Error de importación: Selecciona un archivo (.sav o .sql)', 'warning')
       return
     }
     if (confirmImport.trim().toUpperCase() !== 'IMPORTAR') {
-      setMessage('Escribe IMPORTAR para confirmar')
+      addLog('Confirmación de importación fallida: Debes escribir "IMPORTAR" en el campo de confirmación', 'warning')
       return
     }
+    if (!confirmPassword) {
+      addLog('Confirmación de importación fallida: Introduce tu contraseña de administrador', 'warning')
+      return
+    }
+    addLog('Solicitando token para importar archivo...', 'info')
     const token = importToken || await getImportToken()
     if (!token) return
-    if (!confirm('Importar reemplazara los datos PMB actuales. Continuar?')) return
+    if (!confirm('Importar reemplazará los datos PMB actuales. ¿Continuar?')) {
+      addLog('Importación cancelada por el usuario', 'info')
+      return
+    }
     setWorking(true)
-    setMessage('Importando... (puede tardar)')
+    addLog(`Importando archivo "${file.name}"... (esta operación puede tardar unos momentos)`, 'info')
     try {
       const fd = new FormData()
       fd.append('file', file)
@@ -1453,71 +1842,23 @@ function BackupSection() {
       const res = await fetch('/api/config/backup/import', { method: 'POST', body: fd })
       const data = await res.json()
       if (data.success) {
-        setMessage('Importado OK. Tablas: ' + data.data.tablesImported.length + '. Saltadas: ' + data.data.tablesSkipped.length)
+        addLog(`Importación completada con éxito. Formato detectado: ${data.data.format}.`, 'success')
+        addLog(`Tablas importadas: ${data.data.tablesImported.join(', ')}`, 'success')
+        if (data.data.tablesSkipped && data.data.tablesSkipped.length > 0) {
+          addLog(`Tablas saltadas (no leídas por la app): ${data.data.tablesSkipped.join(', ')}`, 'info')
+        }
+        if (data.data.warnings && data.data.warnings.length > 0) {
+          data.data.warnings.forEach((w: string) => addLog(`[Advertencia de Base de Datos] ${w}`, 'warning'))
+        }
         setImportToken('')
         setConfirmImport('')
         setConfirmPassword('')
         loadBackups()
       } else {
-        setMessage('Error: ' + data.error)
+        addLog(`Error al importar archivo: ${data.error}`, 'error')
       }
     } catch (err) {
-      setMessage('Error: ' + (err as Error).message)
-    } finally {
-      setWorking(false)
-    }
-  }
-
-  const getImportUsersToken = async (): Promise<string | null> => {
-    const res = await fetch('/api/config/backup/confirm?action=import-users')
-    const data = await res.json()
-    if (data.success) {
-      setImportUsersToken(data.data.token)
-      return data.data.token as string
-    }
-    setMessage('Error al generar token: ' + data.error)
-    return null
-  }
-
-  const doImportUsers = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault()
-    const form = e.currentTarget
-    const fileInput = form.elements.namedItem('file') as HTMLInputElement
-    const file = fileInput.files?.[0]
-    if (!file) {
-      setMessage('Selecciona un archivo')
-      return
-    }
-    if (confirmUsers.trim().toUpperCase() !== 'USUARIOS') {
-      setMessage('Escribe USUARIOS para confirmar')
-      return
-    }
-    const token = importUsersToken || await getImportUsersToken()
-    if (!token) return
-    setWorking(true)
-    setMessage('Importando usuarios... (puede tardar)')
-    try {
-      const fd = new FormData()
-      fd.append('file', file)
-      fd.append('token', token)
-      fd.append('confirm', confirmUsers)
-      fd.append('password', confirmPassword)
-      const res = await fetch('/api/config/backup/import-users', { method: 'POST', body: fd })
-      const data = await res.json()
-      if (data.success) {
-        setMessage(
-          'Usuarios importados OK. ' +
-          data.data.rowsProcessed + ' filas procesadas, ' +
-          data.data.rowsAffected + ' filas afectadas.'
-        )
-        setImportUsersToken('')
-        setConfirmUsers('')
-        setConfirmPassword('')
-      } else {
-        setMessage('Error: ' + data.error)
-      }
-    } catch (err) {
-      setMessage('Error: ' + (err as Error).message)
+      addLog(`Error al importar archivo: ${(err as Error).message}`, 'error')
     } finally {
       setWorking(false)
     }
@@ -1530,117 +1871,129 @@ function BackupSection() {
   }
 
   return (
-    <div className={styles.backupSection}>
-      <div className={styles.backupActions}>
-        <button onClick={doCreate} disabled={working}>Crear backup ahora</button>
-      </div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', width: '100%' }}>
+      <div className={styles.backupContainer}>
+        {/* Columna Izquierda: Listado de Backups */}
+        <div className={styles.backupListColumn}>
+          <div className={styles.backupActions}>
+            <button onClick={doCreate} disabled={working}>Crear backup ahora</button>
+          </div>
 
-      {backups.length > 0 && (
-        <div className={styles.table}>
-          <table>
-            <thead>
-              <tr>
-                <th>Archivo</th>
-                <th>Fecha</th>
-                <th>Tamano</th>
-                <th>Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {backups.map(b => (
-                <tr key={b.name}>
-                  <td>{b.name}</td>
-                  <td>{new Date(b.createdAt).toLocaleString('es-ES')}</td>
-                  <td>{formatSize(b.sizeBytes)}</td>
-                  <td>
-                    <a href={'/api/config/backup/download/' + encodeURIComponent(b.name)} download>Descargar</a>
-                    <button onClick={() => doDelete(b.name)} className={styles.dangerButton}>Borrar</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          {backups.length > 0 ? (
+            <div className={styles.backupTableWrapper}>
+              <table className={styles.backupTable}>
+                <thead>
+                  <tr>
+                    <th>Archivo</th>
+                    <th>Fecha</th>
+                    <th>Tamaño</th>
+                    <th>Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {backups.map(b => (
+                    <tr key={b.name}>
+                      <td>{b.name}</td>
+                      <td>{new Date(b.createdAt).toLocaleString('es-ES')}</td>
+                      <td>{formatSize(b.sizeBytes)}</td>
+                      <td>
+                        <div className={styles.backupRowActions}>
+                          <a href={'/api/config/backup/download/' + encodeURIComponent(b.name)} download>Descargar</a>
+                          <button onClick={() => doDelete(b.name)} className={styles.dangerButton}>Borrar</button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className={styles.noData}>No hay copias de seguridad creadas</div>
+          )}
         </div>
-      )}
 
-      <div className={styles.dangerZone}>
-        <h4>Reiniciar BD</h4>
-        <p className={styles.dangerText}>
-          Borra TODAS las tablas PMB (notices, exemplaires, empr, pret, etc) y deja solo las tablas app_*.
-          Se crea un backup de seguridad automatico antes. Esta accion es IRREVERSIBLE sin un backup valido.
-        </p>
-        <input
-          type="text"
-          placeholder='Escribe "BORRAR" para confirmar'
-          value={confirmReset}
-          onChange={(e) => setConfirmReset(e.target.value)}
-        />
-        <input
-          type="password"
-          placeholder='Tu password de admin'
-          value={confirmPassword}
-          onChange={(e) => setConfirmPassword(e.target.value)}
-        />
-        <button onClick={doReset} disabled={working} className={styles.dangerButton}>
-          Reiniciar BD
-        </button>
+        {/* Columna Derecha: Operaciones Peligrosas */}
+        <div className={styles.backupOperationsColumn}>
+          <div className={styles.dangerZone}>
+            <h4>Reiniciar BD</h4>
+            <p className={styles.dangerText}>
+              Borra TODAS las tablas PMB (notices, exemplaires, empr, pret, etc) y deja solo las tablas app_*.
+              Se crea un backup de seguridad automático antes. Esta acción es IRREVERSIBLE sin un backup válido.
+            </p>
+            <input
+              type="text"
+              placeholder='Escribe "BORRAR" para confirmar'
+              value={confirmReset}
+              onChange={(e) => setConfirmReset(e.target.value)}
+            />
+            <input
+              type="password"
+              placeholder='Tu password de admin'
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+            />
+            <button onClick={doReset} disabled={working} className={styles.dangerButton}>
+              Reiniciar BD
+            </button>
+          </div>
+
+          <div className={styles.dangerZone}>
+            <h4>Importar archivo PMB</h4>
+            <p className={styles.dangerText}>
+              Acepta archivos .sav (formato PMB nativo) o mysqldump (.sql). Solo se importan las 8 tablas
+              que la app usa: notices, exemplaires, empr, pret, authors, responsability, groupe, empr_groupe.
+            </p>
+            <form onSubmit={doImport}>
+              <input type="file" name="file" accept=".sav,.sql,.sql.gz" />
+              <input
+                type="text"
+                placeholder='Escribe "IMPORTAR" para confirmar'
+                value={confirmImport}
+                onChange={(e) => setConfirmImport(e.target.value)}
+              />
+              <input
+                type="password"
+                placeholder='Tu password de admin'
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+              />
+              <button type="submit" disabled={working} className={styles.dangerButton}>
+                Importar
+              </button>
+            </form>
+          </div>
+        </div>
       </div>
 
-      <div className={styles.dangerZone}>
-        <h4>Importar archivo PMB</h4>
-        <p className={styles.dangerText}>
-          Acepta archivos .sav (formato PMB nativo) o mysqldump (.sql). Solo se importan las 6 tablas
-          que la app usa: notices, exemplaires, empr, pret, authors, responsability. El resto se ignora.
-          Los archivos del filesystem de PMB (imagenes, parametros.xml) NO se importan.
-        </p>
-        <form onSubmit={doImport}>
-          <input type="file" name="file" accept=".sav,.sql,.sql.gz" />
-          <input
-            type="text"
-            placeholder='Escribe "IMPORTAR" para confirmar'
-            value={confirmImport}
-            onChange={(e) => setConfirmImport(e.target.value)}
-          />
-          <input
-            type="password"
-            placeholder='Tu password de admin'
-            value={confirmPassword}
-            onChange={(e) => setConfirmPassword(e.target.value)}
-          />
-          <button type="submit" disabled={working} className={styles.dangerButton}>
-            Importar
-          </button>
-        </form>
+      {/* Monitor de Operaciones en tiempo real */}
+      <div className={styles.consoleWrapper}>
+        <div className={styles.consoleHeader}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <span className={styles.consoleDot}></span>
+            <strong>Monitor de Operaciones de Base de Datos (Tiempo Real)</strong>
+          </div>
+          {dbLogs.length > 0 && (
+            <button onClick={() => setDbLogs([])} className={styles.consoleClearBtn}>
+              Limpiar consola
+            </button>
+          )}
+        </div>
+        <div className={styles.consoleBody}>
+          {dbLogs.length === 0 ? (
+            <div className={styles.consolePlaceholder}>
+              Esperando operaciones de base de datos... Crea una copia de seguridad, reinicia la base de datos o importa un archivo PMB para comenzar el monitoreo.
+            </div>
+          ) : (
+            dbLogs.map((log, idx) => (
+              <div key={idx} className={`${styles.logLine} ${styles[log.type]}`}>
+                <span className={styles.logTimestamp}>[{log.timestamp}]</span>{' '}
+                <span className={styles.logText}>{log.text}</span>
+              </div>
+            ))
+          )}
+          <div ref={consoleEndRef} />
+        </div>
       </div>
-
-      <div className={styles.dangerZone}>
-        <h4>Importar datos de usuarios (solo tabla empr)</h4>
-        <p className={styles.dangerText}>
-          Importa un mysqldump (.sql) que contenga SOLO la tabla `empr` con los datos completos de usuarios.
-          Actualiza las filas existentes (INSERT ON DUPLICATE KEY UPDATE) sin borrar la tabla ni perder
-          otros datos. Usa esto para restaurar nombres/apellidos perdidos por el bug de exportacion PMB .sav.
-        </p>
-        <form onSubmit={doImportUsers}>
-          <input type="file" name="file" accept=".sql" />
-          <input
-            type="text"
-            placeholder='Escribe "USUARIOS" para confirmar'
-            value={confirmUsers}
-            onChange={(e) => setConfirmUsers(e.target.value)}
-          />
-          <input
-            type="password"
-            placeholder='Tu password de admin'
-            value={confirmPassword}
-            onChange={(e) => setConfirmPassword(e.target.value)}
-          />
-          <button type="submit" disabled={working} className={styles.dangerButton}>
-            Importar usuarios
-          </button>
-        </form>
-      </div>
-
-      {message && <p className={styles.backupMessage}>{message}</p>}
     </div>
   )
 }

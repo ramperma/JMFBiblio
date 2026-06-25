@@ -484,12 +484,25 @@
 
 .newLoanForm {
   display: flex;
-  flex-wrap: wrap;
-  gap: 2rem;
+  flex-direction: column;
+  gap: 1.5rem;
   margin-top: 1.5rem;
-  align-items: flex-start;
   padding-top: 1.5rem;
   border-top: 1px solid var(--border);
+}
+
+.loanFormFields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2rem;
+  width: 100%;
+}
+
+.loanFormActions {
+  width: 100%;
+  margin-top: 0.5rem;
+  display: flex;
+  justify-content: flex-start;
 }
 
 .loanSearchBlock {
@@ -498,7 +511,7 @@
   gap: 0.5rem;
   flex: 1;
   min-width: 280px;
-  max-width: 400px;
+  max-width: 420px;
 }
 
 .loanSearchBlock label {
@@ -507,12 +520,30 @@
   color: var(--text-primary);
 }
 
+.loanSearchBlock > input {
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font: inherit;
+  font-size: 0.9rem;
+  background: var(--bg-white);
+  color: var(--text-primary);
+  transition: all 0.2s ease;
+}
+
+.loanSearchBlock > input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
 .searchInline {
   display: flex;
   gap: 0.5rem;
 }
 
-.searchInline input {
+.searchInline input,
+.searchInline select {
   flex: 1;
   padding: 0.65rem 0.75rem;
   border: 1px solid var(--border);
@@ -521,9 +552,11 @@
   background: var(--bg-white);
   color: var(--text-primary);
   font-size: 0.9rem;
+  transition: all 0.2s ease;
 }
 
-.searchInline input:focus {
+.searchInline input:focus,
+.searchInline select:focus {
   outline: none;
   border-color: var(--primary);
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
@@ -746,11 +779,93 @@
   line-height: 1;
 }
 
-.backupSection {
+.backupContainer {
+  display: flex;
+  gap: 2rem;
+  width: 100%;
+  margin-top: 1rem;
+  align-items: stretch;
+}
+
+.backupListColumn {
+  flex: 1.2;
+  min-width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.backupOperationsColumn {
+  flex: 1;
+  min-width: 320px;
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
-  margin-top: 1rem;
+}
+
+.backupTableWrapper {
+  max-height: 680px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-white);
+  box-shadow: var(--shadow-sm);
+}
+
+.backupTable {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.backupTable th {
+  position: sticky;
+  top: 0;
+  background: #f1f5f9;
+  z-index: 1;
+  padding: 0.75rem;
+  text-align: left;
+  font-weight: 600;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  border-bottom: 2px solid var(--border);
+}
+
+.backupTable td {
+  padding: 0.75rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  word-break: break-all;
+}
+
+.backupTable tr:hover {
+  background-color: #f8fafc;
+}
+
+.backupRowActions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.backupRowActions a {
+  display: inline-block;
+  padding: 0.4rem 0.75rem;
+  background: #f1f5f9;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  text-decoration: none;
+  font-size: 0.8rem;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.backupRowActions a:hover {
+  background: var(--border);
+  transform: translateY(-1px);
 }
 
 .backupActions {
@@ -773,7 +888,6 @@
   border: 2px solid var(--error);
   border-radius: var(--radius-lg);
   padding: 1.5rem;
-  margin-top: 1.5rem;
   background: rgba(239, 68, 68, 0.03);
 }
 
@@ -860,3 +974,119 @@
   color: var(--text-secondary);
   font-size: 0.95rem;
 }
+
+/* Consola de Operaciones BD */
+.consoleWrapper {
+  width: 100%;
+  background: #0f172a; /* slate-900 */
+  border: 1px solid #334155; /* slate-700 */
+  border-radius: var(--radius-lg);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  overflow: hidden;
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+}
+
+.consoleHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #1e293b; /* slate-800 */
+  padding: 0.75rem 1.25rem;
+  border-bottom: 1px solid #334155;
+  color: #e2e8f0; /* slate-200 */
+  font-size: 0.85rem;
+}
+
+.consoleDot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  background-color: #10b981; /* emerald-500 */
+  border-radius: 50%;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0% { transform: scale(0.95); opacity: 0.8; }
+  50% { transform: scale(1.1); opacity: 1; }
+  100% { transform: scale(0.95); opacity: 0.8; }
+}
+
+.consoleClearBtn {
+  background: transparent;
+  border: 1px solid #475569;
+  color: #94a3b8;
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--radius);
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.consoleClearBtn:hover {
+  background: #334155;
+  color: #f8fafc;
+}
+
+.consoleBody {
+  padding: 1rem 1.25rem;
+  max-height: 280px;
+  overflow-y: auto;
+  min-height: 120px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.consolePlaceholder {
+  color: #64748b;
+  font-size: 0.85rem;
+  font-style: italic;
+  margin: auto 0;
+  text-align: center;
+}
+
+.logLine {
+  font-size: 0.85rem;
+  line-height: 1.5;
+  word-break: break-all;
+}
+
+.logTimestamp {
+  color: #64748b; /* slate-500 */
+  font-weight: 500;
+  margin-right: 0.5rem;
+  user-select: none;
+}
+
+.logText {
+  white-space: pre-wrap;
+}
+
+/* Colores de Logs */
+.info {
+  color: #e2e8f0; /* slate-200 */
+}
+
+.success {
+  color: #34d399; /* emerald-400 */
+}
+
+.warning {
+  color: #fbbf24; /* amber-400 */
+}
+
+.error {
+  color: #f87171; /* red-400 */
+}
+
+@media (max-width: 1024px) {
+  .backupContainer {
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+  .backupTableWrapper {
+    max-height: 400px;
+  }
+}
+
