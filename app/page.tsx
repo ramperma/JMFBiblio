@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import styles from './page.module.css'
 
 type SortDir = 'asc' | 'desc'
@@ -104,7 +104,11 @@ export default function Home() {
   const [authLoading, setAuthLoading] = useState(true)
 
   const [activeTab, setActiveTab] = useState<Tab>('books')
-  const [loading, setLoading] = useState(false)
+  const [booksLoading, setBooksLoading] = useState(false)
+  const [usersLoading, setUsersLoading] = useState(false)
+  const [loansLoading, setLoansLoading] = useState(false)
+  const [configLoading, setConfigLoading] = useState(false)
+  const [statsLoading, setStatsLoading] = useState(false)
 
   const [books, setBooks] = useState<Book[]>([])
   const [users, setUsers] = useState<User[]>([])
@@ -182,55 +186,6 @@ export default function Home() {
   const [topBorrowers, setTopBorrowers] = useState<TopBorrower[]>([])
   const [statsError, setStatsError] = useState('')
 
-  const queryDeps = useMemo(
-    () => ({
-      activeTab,
-      booksPage: booksPagination.page,
-      booksSize: booksPagination.pageSize,
-      usersPage: usersPagination.page,
-      usersSize: usersPagination.pageSize,
-      loansPage: loansPagination.page,
-      loansSize: loansPagination.pageSize,
-      bookSortBy,
-      bookSortDir,
-      userSortBy,
-      userSortDir,
-      loanSortBy,
-      loanSortDir,
-      bookQuery,
-      userQuery,
-      includeInactiveBooks,
-      includeInactiveUsers,
-      loanFilters: JSON.stringify(loanFilters),
-      configUsersPage: configUsersPagination.page,
-      configUsersSize: configUsersPagination.pageSize,
-      refreshKey
-    }),
-    [
-      activeTab,
-      booksPagination.page,
-      booksPagination.pageSize,
-      usersPagination.page,
-      usersPagination.pageSize,
-      loansPagination.page,
-      loansPagination.pageSize,
-      bookSortBy,
-      bookSortDir,
-      userSortBy,
-      userSortDir,
-      loanSortBy,
-      loanSortDir,
-      bookQuery,
-      userQuery,
-      includeInactiveBooks,
-      includeInactiveUsers,
-      loanFilters,
-      configUsersPagination.page,
-      configUsersPagination.pageSize,
-      refreshKey
-    ]
-  )
-
   useEffect(() => {
     const check = async () => {
       try {
@@ -249,131 +204,239 @@ export default function Home() {
   }, [])
 
   useEffect(() => {
-    if (!session) {
-      return
-    }
-
+    if (!session || activeTab !== 'books') return
+    let cancelled = false
     const load = async () => {
-      setLoading(true)
+      setBooksLoading(true)
       try {
-        if (queryDeps.activeTab === 'books') {
-          const params = new URLSearchParams({
-            page: String(booksPagination.page),
-            pageSize: String(booksPagination.pageSize),
-            sortBy: bookSortBy,
-            sortDir: bookSortDir,
-            includeInactive: String(includeInactiveBooks)
-          })
-          if (bookQuery) {
-            params.set('q', bookQuery)
-          }
-          const res = await fetch(`/api/books?${params.toString()}`)
-          const data = await res.json()
-          setBooks(data.data || [])
-          if (data.pagination) {
-            setBooksPagination(data.pagination)
-          }
+        const params = new URLSearchParams({
+          page: String(booksPagination.page),
+          pageSize: String(booksPagination.pageSize),
+          sortBy: bookSortBy,
+          sortDir: bookSortDir,
+          includeInactive: String(includeInactiveBooks)
+        })
+        if (bookQuery) {
+          params.set('q', bookQuery)
         }
-
-        if (queryDeps.activeTab === 'users') {
-          const params = new URLSearchParams({
-            page: String(usersPagination.page),
-            pageSize: String(usersPagination.pageSize),
-            sortBy: userSortBy,
-            sortDir: userSortDir,
-            includeInactive: String(includeInactiveUsers)
-          })
-          if (userQuery) {
-            params.set('q', userQuery)
-          }
-          const res = await fetch(`/api/users?${params.toString()}`)
-          const data = await res.json()
-          setUsers(data.data || [])
-          if (data.pagination) {
-            setUsersPagination(data.pagination)
-          }
-        }
-
-        if (queryDeps.activeTab === 'loans') {
-          const params = new URLSearchParams({
-            page: String(loansPagination.page),
-            pageSize: String(loansPagination.pageSize),
-            sortBy: loanSortBy,
-            sortDir: loanSortDir,
-            activeOnly: String(loanFilters.activeOnly)
-          })
-          if (loanFilters.borrower) {
-            params.set('borrower', loanFilters.borrower)
-          }
-          if (loanFilters.book) {
-            params.set('book', loanFilters.book)
-          }
-          if (loanFilters.dateFrom) {
-            params.set('dateFrom', loanFilters.dateFrom)
-          }
-          if (loanFilters.dateTo) {
-            params.set('dateTo', loanFilters.dateTo)
-          }
-          const res = await fetch(`/api/loans?${params.toString()}`)
-          const data = await res.json()
-          setLoans(data.data || [])
-          if (data.pagination) {
-            setLoansPagination(data.pagination)
-          }
-        }
-
-        if (queryDeps.activeTab === 'loans') {
-          // fetch max_renewals from settings for UI
-          const srRes = await fetch('/api/config/settings')
-          const srData = await srRes.json()
-          if (srData.success) {
-            const mr = srData.data.find((s: AppSetting) => s.key_name === 'max_renewals')
-            if (mr) setMaxRenewals(parseInt(mr.key_value, 10))
-          }
-        }
-
-        if (queryDeps.activeTab === 'config') {
-          const [settingsRes, cfgUsersRes] = await Promise.all([
-            fetch('/api/config/settings'),
-            fetch(
-              `/api/config/users?page=${configUsersPagination.page}&pageSize=${configUsersPagination.pageSize}`
-            )
-          ])
-
-          const settingsData = await settingsRes.json()
-          if (settingsData.success) {
-            setSettings(settingsData.data)
-          }
-
-          const cfgUsersData = await cfgUsersRes.json()
-          if (cfgUsersData.success) {
-            setConfigUsers(cfgUsersData.data)
-            setConfigUsersPagination(cfgUsersData.pagination)
-          }
-        }
-
-        if (queryDeps.activeTab === 'stats') {
-          const statsRes = await fetch('/api/statistics')
-          const statsData = await statsRes.json()
-          if (statsData.success) {
-            setStats(statsData.data.stats)
-            setTopBooks(statsData.data.topBooks)
-            setTopBorrowers(statsData.data.topBorrowers)
-            setStatsError('')
-          } else {
-            setStatsError(statsData.error || 'Error al cargar estadisticas')
-          }
+        const res = await fetch(`/api/books?${params.toString()}`)
+        const data = await res.json()
+        if (cancelled) return
+        setBooks(data.data || [])
+        if (data.pagination) {
+          setBooksPagination(data.pagination)
         }
       } catch (error) {
-        console.error('Error loading data:', error)
+        console.error('Error loading books:', error)
       } finally {
-        setLoading(false)
+        if (!cancelled) setBooksLoading(false)
       }
     }
+    const timer = setTimeout(load, 250)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [
+    session,
+    activeTab,
+    booksPagination.page,
+    booksPagination.pageSize,
+    bookSortBy,
+    bookSortDir,
+    bookQuery,
+    includeInactiveBooks,
+    refreshKey
+  ])
 
-    const timer = setTimeout(load, 200)
-    return () => clearTimeout(timer)
-  }, [session, queryDeps])
+  useEffect(() => {
+    if (!session || activeTab !== 'users') return
+    let cancelled = false
+    const load = async () => {
+      setUsersLoading(true)
+      try {
+        const params = new URLSearchParams({
+          page: String(usersPagination.page),
+          pageSize: String(usersPagination.pageSize),
+          sortBy: userSortBy,
+          sortDir: userSortDir,
+          includeInactive: String(includeInactiveUsers)
+        })
+        if (userQuery) {
+          params.set('q', userQuery)
+        }
+        const res = await fetch(`/api/users?${params.toString()}`)
+        const data = await res.json()
+        if (cancelled) return
+        setUsers(data.data || [])
+        if (data.pagination) {
+          setUsersPagination(data.pagination)
+        }
+      } catch (error) {
+        console.error('Error loading users:', error)
+      } finally {
+        if (!cancelled) setUsersLoading(false)
+      }
+    }
+    const timer = setTimeout(load, 250)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [
+    session,
+    activeTab,
+    usersPagination.page,
+    usersPagination.pageSize,
+    userSortBy,
+    userSortDir,
+    userQuery,
+    includeInactiveUsers,
+    refreshKey
+  ])
+
+  useEffect(() => {
+    if (!session || activeTab !== 'loans') return
+    let cancelled = false
+    const load = async () => {
+      setLoansLoading(true)
+      try {
+        const params = new URLSearchParams({
+          page: String(loansPagination.page),
+          pageSize: String(loansPagination.pageSize),
+          sortBy: loanSortBy,
+          sortDir: loanSortDir,
+          activeOnly: String(loanFilters.activeOnly)
+        })
+        if (loanFilters.borrower) {
+          params.set('borrower', loanFilters.borrower)
+        }
+        if (loanFilters.book) {
+          params.set('book', loanFilters.book)
+        }
+        if (loanFilters.dateFrom) {
+          params.set('dateFrom', loanFilters.dateFrom)
+        }
+        if (loanFilters.dateTo) {
+          params.set('dateTo', loanFilters.dateTo)
+        }
+        const res = await fetch(`/api/loans?${params.toString()}`)
+        const data = await res.json()
+        if (cancelled) return
+        setLoans(data.data || [])
+        if (data.pagination) {
+          setLoansPagination(data.pagination)
+        }
+      } catch (error) {
+        console.error('Error loading loans:', error)
+      } finally {
+        if (!cancelled) setLoansLoading(false)
+      }
+    }
+    const timer = setTimeout(load, 250)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [
+    session,
+    activeTab,
+    loansPagination.page,
+    loansPagination.pageSize,
+    loanSortBy,
+    loanSortDir,
+    loanFilters.activeOnly,
+    loanFilters.borrower,
+    loanFilters.book,
+    loanFilters.dateFrom,
+    loanFilters.dateTo,
+    refreshKey
+  ])
+
+  useEffect(() => {
+    if (!session || activeTab !== 'loans') return
+    let cancelled = false
+    const load = async () => {
+      try {
+        const srRes = await fetch('/api/config/settings')
+        const srData = await srRes.json()
+        if (cancelled) return
+        if (srData.success) {
+          const mr = srData.data.find((s: AppSetting) => s.key_name === 'max_renewals')
+          if (mr) setMaxRenewals(parseInt(mr.key_value, 10))
+        }
+      } catch {
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [session, activeTab])
+
+  useEffect(() => {
+    if (!session || activeTab !== 'config') return
+    let cancelled = false
+    const load = async () => {
+      setConfigLoading(true)
+      try {
+        const [settingsRes, cfgUsersRes] = await Promise.all([
+          fetch('/api/config/settings'),
+          fetch(
+            `/api/config/users?page=${configUsersPagination.page}&pageSize=${configUsersPagination.pageSize}`
+          )
+        ])
+        const settingsData = await settingsRes.json()
+        if (cancelled) return
+        if (settingsData.success) {
+          setSettings(settingsData.data)
+        }
+        const cfgUsersData = await cfgUsersRes.json()
+        if (cancelled) return
+        if (cfgUsersData.success) {
+          setConfigUsers(cfgUsersData.data)
+          setConfigUsersPagination(cfgUsersData.pagination)
+        }
+      } catch (error) {
+        console.error('Error loading config:', error)
+      } finally {
+        if (!cancelled) setConfigLoading(false)
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [session, activeTab, configUsersPagination.page, configUsersPagination.pageSize, refreshKey])
+
+  useEffect(() => {
+    if (!session || activeTab !== 'stats') return
+    let cancelled = false
+    const load = async () => {
+      setStatsLoading(true)
+      try {
+        const statsRes = await fetch('/api/statistics')
+        const statsData = await statsRes.json()
+        if (cancelled) return
+        if (statsData.success) {
+          setStats(statsData.data.stats)
+          setTopBooks(statsData.data.topBooks)
+          setTopBorrowers(statsData.data.topBorrowers)
+          setStatsError('')
+        } else {
+          setStatsError(statsData.error || 'Error al cargar estadisticas')
+        }
+      } catch (error) {
+        console.error('Error loading stats:', error)
+      } finally {
+        if (!cancelled) setStatsLoading(false)
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [session, activeTab, refreshKey])
 
   const sortArrow = (active: boolean, dir: SortDir) => {
     if (!active) {
@@ -740,9 +803,7 @@ export default function Home() {
       </nav>
 
       <main className={styles.content}>
-        {loading && <div className={styles.loading}>Cargando...</div>}
-
-        {!loading && activeTab === 'books' && (
+        {activeTab === 'books' && (
           <section>
             <h2>Libros</h2>
 
@@ -776,12 +837,17 @@ export default function Home() {
             </div>
 
             {paginator(booksPagination, setBooksPagination)}
-            <div className={styles.table}>
-              <table>
-                <thead>
-                  <tr>
-                    <th onClick={() => toggleSort(bookSortBy, bookSortDir, setBookSortBy, setBookSortDir, 'notice_id')} className={styles.sortableHeader}>ID{sortArrow(bookSortBy === 'notice_id', bookSortDir)}</th>
-                    <th onClick={() => toggleSort(bookSortBy, bookSortDir, setBookSortBy, setBookSortDir, 'tit1')} className={styles.sortableHeader}>Titulo{sortArrow(bookSortBy === 'tit1', bookSortDir)}</th>
+            <div className={styles.tableWrapper}>
+              {booksLoading && books.length === 0 ? (
+                <div className={styles.loadingFirst}>Cargando...</div>
+              ) : (
+                <div className={`${styles.table} ${booksLoading ? styles.tableLoading : ''}`}>
+                  {booksLoading && <span className={styles.tableSpinner}>⟳ cargando</span>}
+                  <table>
+                    <thead>
+                      <tr>
+                        <th onClick={() => toggleSort(bookSortBy, bookSortDir, setBookSortBy, setBookSortDir, 'notice_id')} className={styles.sortableHeader}>ID{sortArrow(bookSortBy === 'notice_id', bookSortDir)}</th>
+                        <th onClick={() => toggleSort(bookSortBy, bookSortDir, setBookSortBy, setBookSortDir, 'tit1')} className={styles.sortableHeader}>Titulo{sortArrow(bookSortBy === 'tit1', bookSortDir)}</th>
                     <th onClick={() => toggleSort(bookSortBy, bookSortDir, setBookSortBy, setBookSortDir, 'year')} className={styles.sortableHeader}>Ano{sortArrow(bookSortBy === 'year', bookSortDir)}</th>
                     <th onClick={() => toggleSort(bookSortBy, bookSortDir, setBookSortBy, setBookSortDir, 'code')} className={styles.sortableHeader}>Codigo{sortArrow(bookSortBy === 'code', bookSortDir)}</th>
                     <th>Estado</th>
@@ -816,12 +882,14 @@ export default function Home() {
                   ))}
                 </tbody>
               </table>
+                </div>
+              )}
             </div>
             {paginator(booksPagination, setBooksPagination)}
           </section>
         )}
 
-        {!loading && activeTab === 'users' && (
+        {activeTab === 'users' && (
           <section>
             <h2>Usuarios</h2>
 
@@ -857,13 +925,18 @@ export default function Home() {
             </div>
 
             {paginator(usersPagination, setUsersPagination)}
-            <div className={styles.table}>
-              <table>
-                <thead>
-                  <tr>
-                    <th className={styles.sortableHeader} onClick={() => toggleSort(userSortBy, userSortDir, setUserSortBy, setUserSortDir, 'id_empr')}>ID{sortArrow(userSortBy === 'id_empr', userSortDir)}</th>
-                    <th className={styles.sortableHeader} onClick={() => toggleSort(userSortBy, userSortDir, setUserSortBy, setUserSortDir, 'empr_cb')}>Carne{sortArrow(userSortBy === 'empr_cb', userSortDir)}</th>
-                    <th className={styles.sortableHeader} onClick={() => toggleSort(userSortBy, userSortDir, setUserSortBy, setUserSortDir, 'empr_nom')}>Apellido{sortArrow(userSortBy === 'empr_nom', userSortDir)}</th>
+            <div className={styles.tableWrapper}>
+              {usersLoading && users.length === 0 ? (
+                <div className={styles.loadingFirst}>Cargando...</div>
+              ) : (
+                <div className={`${styles.table} ${usersLoading ? styles.tableLoading : ''}`}>
+                  {usersLoading && <span className={styles.tableSpinner}>⟳ cargando</span>}
+                  <table>
+                    <thead>
+                      <tr>
+                        <th className={styles.sortableHeader} onClick={() => toggleSort(userSortBy, userSortDir, setUserSortBy, setUserSortDir, 'id_empr')}>ID{sortArrow(userSortBy === 'id_empr', userSortDir)}</th>
+                        <th className={styles.sortableHeader} onClick={() => toggleSort(userSortBy, userSortDir, setUserSortBy, setUserSortDir, 'empr_cb')}>Carne{sortArrow(userSortBy === 'empr_cb', userSortDir)}</th>
+                        <th className={styles.sortableHeader} onClick={() => toggleSort(userSortBy, userSortDir, setUserSortBy, setUserSortDir, 'empr_nom')}>Apellido{sortArrow(userSortBy === 'empr_nom', userSortDir)}</th>
                     <th className={styles.sortableHeader} onClick={() => toggleSort(userSortBy, userSortDir, setUserSortBy, setUserSortDir, 'empr_prenom')}>Nombre{sortArrow(userSortBy === 'empr_prenom', userSortDir)}</th>
                     <th className={styles.sortableHeader} onClick={() => toggleSort(userSortBy, userSortDir, setUserSortBy, setUserSortDir, 'empr_mail')}>Email{sortArrow(userSortBy === 'empr_mail', userSortDir)}</th>
                     <th className={styles.sortableHeader} onClick={() => toggleSort(userSortBy, userSortDir, setUserSortBy, setUserSortDir, 'empr_tel1')}>Telefono{sortArrow(userSortBy === 'empr_tel1', userSortDir)}</th>
@@ -901,12 +974,14 @@ export default function Home() {
                   ))}
                 </tbody>
               </table>
+                </div>
+              )}
             </div>
             {paginator(usersPagination, setUsersPagination)}
           </section>
         )}
 
-        {!loading && activeTab === 'loans' && (
+        {activeTab === 'loans' && (
           <section>
             <h2>Prestamos</h2>
 
@@ -1010,12 +1085,17 @@ export default function Home() {
             </div>
 
             {paginator(loansPagination, setLoansPagination)}
-            <div className={styles.table}>
-              <table>
-                <thead>
-                  <tr>
-                    <th className={styles.sortableHeader} onClick={() => toggleSort(loanSortBy, loanSortDir, setLoanSortBy, setLoanSortDir, 'pret_id')}>Ejpl{sortArrow(loanSortBy === 'pret_id', loanSortDir)}</th>
-                    <th className={styles.sortableHeader} onClick={() => toggleSort(loanSortBy, loanSortDir, setLoanSortBy, setLoanSortDir, 'tit1')}>Libro{sortArrow(loanSortBy === 'tit1', loanSortDir)}</th>
+            <div className={styles.tableWrapper}>
+              {loansLoading && loans.length === 0 ? (
+                <div className={styles.loadingFirst}>Cargando...</div>
+              ) : (
+                <div className={`${styles.table} ${loansLoading ? styles.tableLoading : ''}`}>
+                  {loansLoading && <span className={styles.tableSpinner}>⟳ cargando</span>}
+                  <table>
+                    <thead>
+                      <tr>
+                        <th className={styles.sortableHeader} onClick={() => toggleSort(loanSortBy, loanSortDir, setLoanSortBy, setLoanSortDir, 'pret_id')}>Ejpl{sortArrow(loanSortBy === 'pret_id', loanSortDir)}</th>
+                        <th className={styles.sortableHeader} onClick={() => toggleSort(loanSortBy, loanSortDir, setLoanSortBy, setLoanSortDir, 'tit1')}>Libro{sortArrow(loanSortBy === 'tit1', loanSortDir)}</th>
                     <th className={styles.sortableHeader} onClick={() => toggleSort(loanSortBy, loanSortDir, setLoanSortBy, setLoanSortDir, 'empr_nom')}>Usuario{sortArrow(loanSortBy === 'empr_nom', loanSortDir)}</th>
                     <th className={styles.sortableHeader} onClick={() => toggleSort(loanSortBy, loanSortDir, setLoanSortBy, setLoanSortDir, 'pret_date')}>Fecha{sortArrow(loanSortBy === 'pret_date', loanSortDir)}</th>
                     <th className={styles.sortableHeader} onClick={() => toggleSort(loanSortBy, loanSortDir, setLoanSortBy, setLoanSortDir, 'pret_retour')}>Vence{sortArrow(loanSortBy === 'pret_retour', loanSortDir)}</th>
@@ -1049,13 +1129,15 @@ export default function Home() {
                     )
                   })}
                 </tbody>
-              </table>
+                  </table>
+                </div>
+              )}
             </div>
             {paginator(loansPagination, setLoansPagination)}
           </section>
         )}
 
-        {!loading && activeTab === 'config' && (
+        {activeTab === 'config' && (
           <section>
             <h2>Configuracion</h2>
             <div className={styles.configGrid}>
@@ -1094,25 +1176,32 @@ export default function Home() {
                   <button type="submit">Crear</button>
                 </form>
 
-                <div className={styles.table}>
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>ID</th>
-                        <th>Usuario</th>
-                        <th>Rol</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {configUsers.map(cu => (
-                        <tr key={cu.id}>
-                          <td>{cu.id}</td>
-                          <td>{cu.username}</td>
-                          <td>{cu.role}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                <div className={styles.tableWrapper}>
+                  {configLoading && configUsers.length === 0 ? (
+                    <div className={styles.loadingFirst}>Cargando...</div>
+                  ) : (
+                    <div className={`${styles.table} ${configLoading ? styles.tableLoading : ''}`}>
+                      {configLoading && <span className={styles.tableSpinner}>⟳ cargando</span>}
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>ID</th>
+                            <th>Usuario</th>
+                            <th>Rol</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {configUsers.map(cu => (
+                            <tr key={cu.id}>
+                              <td>{cu.id}</td>
+                              <td>{cu.username}</td>
+                              <td>{cu.role}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
                 {paginator(configUsersPagination, setConfigUsersPagination)}
               </div>
@@ -1129,12 +1218,16 @@ export default function Home() {
           </section>
         )}
 
-        {!loading && activeTab === 'stats' && (
+        {activeTab === 'stats' && (
           <section>
             <h2>Estadisticas</h2>
             {statsError && <p className={styles.errorText}>{statsError}</p>}
+            {statsLoading && !stats && (
+              <div className={styles.loadingFirst}>Cargando estadisticas...</div>
+            )}
             {stats && (
               <>
+                {statsLoading && <div className={styles.tableLoading} style={{ opacity: 0.6 }} />}
                 <div className={styles.statsGrid}>
                   <div className={styles.statCard}>
                     <span className={styles.statLabel}>Libros</span>
@@ -1159,7 +1252,7 @@ export default function Home() {
                 </div>
 
                 <h3>Top 5 libros mas prestados (12 meses)</h3>
-                <div className={styles.table}>
+                <div className={`${styles.table} ${statsLoading ? styles.tableLoading : ''}`}>
                   <table>
                     <thead>
                       <tr>
@@ -1184,7 +1277,7 @@ export default function Home() {
                 </div>
 
                 <h3>Top 5 usuarios con mas prestamos activos</h3>
-                <div className={styles.table}>
+                <div className={`${styles.table} ${statsLoading ? styles.tableLoading : ''}`}>
                   <table>
                     <thead>
                       <tr>
@@ -1225,6 +1318,8 @@ function BackupSection() {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [importToken, setImportToken] = useState('')
   const [resetToken, setResetToken] = useState('')
+  const [confirmUsers, setConfirmUsers] = useState('')
+  const [importUsersToken, setImportUsersToken] = useState('')
 
   const loadBackups = async () => {
     try {
@@ -1373,6 +1468,61 @@ function BackupSection() {
     }
   }
 
+  const getImportUsersToken = async (): Promise<string | null> => {
+    const res = await fetch('/api/config/backup/confirm?action=import-users')
+    const data = await res.json()
+    if (data.success) {
+      setImportUsersToken(data.data.token)
+      return data.data.token as string
+    }
+    setMessage('Error al generar token: ' + data.error)
+    return null
+  }
+
+  const doImportUsers = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    const form = e.currentTarget
+    const fileInput = form.elements.namedItem('file') as HTMLInputElement
+    const file = fileInput.files?.[0]
+    if (!file) {
+      setMessage('Selecciona un archivo')
+      return
+    }
+    if (confirmUsers.trim().toUpperCase() !== 'USUARIOS') {
+      setMessage('Escribe USUARIOS para confirmar')
+      return
+    }
+    const token = importUsersToken || await getImportUsersToken()
+    if (!token) return
+    setWorking(true)
+    setMessage('Importando usuarios... (puede tardar)')
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      fd.append('token', token)
+      fd.append('confirm', confirmUsers)
+      fd.append('password', confirmPassword)
+      const res = await fetch('/api/config/backup/import-users', { method: 'POST', body: fd })
+      const data = await res.json()
+      if (data.success) {
+        setMessage(
+          'Usuarios importados OK. ' +
+          data.data.rowsProcessed + ' filas procesadas, ' +
+          data.data.rowsAffected + ' filas afectadas.'
+        )
+        setImportUsersToken('')
+        setConfirmUsers('')
+        setConfirmPassword('')
+      } else {
+        setMessage('Error: ' + data.error)
+      }
+    } catch (err) {
+      setMessage('Error: ' + (err as Error).message)
+    } finally {
+      setWorking(false)
+    }
+  }
+
   const formatSize = (b: number) => {
     if (b < 1024) return b + ' B'
     if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB'
@@ -1459,6 +1609,33 @@ function BackupSection() {
           />
           <button type="submit" disabled={working} className={styles.dangerButton}>
             Importar
+          </button>
+        </form>
+      </div>
+
+      <div className={styles.dangerZone}>
+        <h4>Importar datos de usuarios (solo tabla empr)</h4>
+        <p className={styles.dangerText}>
+          Importa un mysqldump (.sql) que contenga SOLO la tabla `empr` con los datos completos de usuarios.
+          Actualiza las filas existentes (INSERT ON DUPLICATE KEY UPDATE) sin borrar la tabla ni perder
+          otros datos. Usa esto para restaurar nombres/apellidos perdidos por el bug de exportacion PMB .sav.
+        </p>
+        <form onSubmit={doImportUsers}>
+          <input type="file" name="file" accept=".sql" />
+          <input
+            type="text"
+            placeholder='Escribe "USUARIOS" para confirmar'
+            value={confirmUsers}
+            onChange={(e) => setConfirmUsers(e.target.value)}
+          />
+          <input
+            type="password"
+            placeholder='Tu password de admin'
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+          />
+          <button type="submit" disabled={working} className={styles.dangerButton}>
+            Importar usuarios
           </button>
         </form>
       </div>

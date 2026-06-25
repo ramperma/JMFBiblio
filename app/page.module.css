@@ -834,3 +834,29 @@
   word-break: break-word;
   color: var(--text-secondary);
 }
+
+.tableWrapper {
+  position: relative;
+}
+
+.tableLoading {
+  opacity: 0.45;
+  pointer-events: none;
+  transition: opacity 0.15s ease-in-out;
+}
+
+.tableSpinner {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.4rem;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  z-index: 1;
+}
+
+.loadingFirst {
+  text-align: center;
+  padding: 2rem;
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+}
