@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCurrentSession } from '@/lib/auth'
+import { requireSession } from '@/lib/auth/role-check'
 import { groupRepository } from '@/lib/repositories'
 
 export async function GET(_request: NextRequest) {
+  const auth = await requireSession()
+  if (!auth.ok) {
+    return NextResponse.json({ success: false, error: auth.error }, { status: auth.status })
+  }
+
   try {
     const data = await groupRepository.getAllGroups()
     return NextResponse.json({ success: true, data })
@@ -16,9 +21,9 @@ export async function GET(_request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const session = await getCurrentSession()
-  if (!session) {
-    return NextResponse.json({ success: false, error: 'No autenticado' }, { status: 401 })
+  const auth = await requireSession()
+  if (!auth.ok) {
+    return NextResponse.json({ success: false, error: auth.error }, { status: auth.status })
   }
 
   try {

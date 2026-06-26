@@ -1,4 +1,4 @@
-import { getDbConnection } from '../db'
+import { getDbConnection, getDbPool } from '../db'
 import { Book, BookDetail, Author } from '../types'
 import { ResultSetHeader, RowDataPacket } from 'mysql2/promise'
 
@@ -90,64 +90,56 @@ export const bookRepository = {
   },
 
   async createBook(input: { tit1: string; year?: string; code?: string }) {
-    const conn = await getDbConnection()
-    const [result] = await conn.query(
-      `INSERT INTO notices (
-        typdoc, tit1, year, code, n_gen, n_contenu, n_resume, lien,
-        index_l, index_matieres, commentaire_gestion, signature, thumbnail_url,
-        indexation_lang, map_equinoxe
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        'a',
-        input.tit1,
-        input.year || null,
-        input.code || '',
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
-        '',
-        ''
-      ]
-    )
+    const conn = await getDbPool().getConnection()
+    try {
+      await conn.beginTransaction()
 
-    const noticeId = (result as ResultSetHeader).insertId
+      const [result] = await conn.query(
+        `INSERT INTO notices (
+          typdoc, tit1, year, code, n_gen, n_contenu, n_resume, lien,
+          index_l, index_matieres, commentaire_gestion, signature, thumbnail_url,
+          indexation_lang, map_equinoxe
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ['a', input.tit1, input.year || null, input.code || '', '', '', '', '', '', '', '', '', '', '', '']
+      )
+      const noticeId = (result as ResultSetHeader).insertId
 
-    // Generar el siguiente código de barras secuencial disponible (excluyendo ISBNs/EANs de 13 dígitos)
-    const [cbRows] = await conn.query(
-      `SELECT expl_cb FROM exemplaires 
-       WHERE expl_cb REGEXP '^[0-9]+$' AND CAST(expl_cb AS UNSIGNED) < 1000000000 
-       ORDER BY CAST(expl_cb AS UNSIGNED) DESC LIMIT 1`
-    )
-    const cbArr = cbRows as RowDataPacket[]
+      // Atomic barcode: lock max row so concurrent requests don't get the same value
+      const [cbRows] = await conn.query(
+        `SELECT expl_cb FROM exemplaires
+         WHERE expl_cb REGEXP '^[0-9]+$' AND CAST(expl_cb AS UNSIGNED) < 1000000000
+         ORDER BY CAST(expl_cb AS UNSIGNED) DESC LIMIT 1
+         FOR UPDATE`
+      )
+      const cbArr = cbRows as RowDataPacket[]
 
-    let nextBarcodeVal = 10001
-    let originalStr = ''
-    if (cbArr.length > 0) {
-      originalStr = cbArr[0].expl_cb
-      nextBarcodeVal = parseInt(originalStr, 10) + 1
+      let nextBarcodeVal = 10001
+      let originalStr = ''
+      if (cbArr.length > 0) {
+        originalStr = cbArr[0].expl_cb
+        nextBarcodeVal = parseInt(originalStr, 10) + 1
+      }
+      let nextBarcode = String(nextBarcodeVal)
+      if (originalStr.startsWith('0') && originalStr.length > 1) {
+        nextBarcode = String(nextBarcodeVal).padStart(originalStr.length, '0')
+      }
+
+      await conn.query(
+        `INSERT INTO exemplaires (
+          expl_cb, expl_notice, expl_bulletin, expl_typdoc, expl_cote, expl_section,
+          expl_statut, expl_location, expl_codestat, expl_owner, expl_lastempr, create_date
+        ) VALUES (?, ?, 0, 1, '', 13, 1, 1, 11, 2, 0, NOW())`,
+        [nextBarcode, noticeId]
+      )
+
+      await conn.commit()
+      return { noticeId, explCb: nextBarcode }
+    } catch (e) {
+      await conn.rollback()
+      throw e
+    } finally {
+      conn.release()
     }
-
-    let nextBarcode = String(nextBarcodeVal)
-    if (originalStr.startsWith('0') && originalStr.length > 1) {
-      nextBarcode = String(nextBarcodeVal).padStart(originalStr.length, '0')
-    }
-
-    // Insertar el ejemplar correspondiente en la base de datos
-    await conn.query(
-      `INSERT INTO exemplaires (
-        expl_cb, expl_notice, expl_bulletin, expl_typdoc, expl_cote, expl_section,
-        expl_statut, expl_location, expl_codestat, expl_owner, expl_lastempr, create_date
-      ) VALUES (?, ?, 0, 1, '', 13, 1, 1, 11, 2, 0, NOW())`,
-      [nextBarcode, noticeId]
-    )
-
-    return { noticeId, explCb: nextBarcode }
   },
 
   async updateBook(noticeId: number, input: { tit1?: string; year?: string; code?: string }) {
@@ -397,61 +389,53 @@ export const bookRepository = {
       expl_codestat: number
     }
   ): Promise<{ noticeId: number; explId: number }> {
-    const conn = await getDbConnection()
+    const conn = await getDbPool().getConnection()
+    try {
+      await conn.beginTransaction()
 
-    // 1. Insert notice
-    const [result] = await conn.query(
-      `INSERT INTO notices (
-        typdoc, tit1, year, code, npages, ed1_id, n_gen, n_contenu, n_resume, lien,
-        index_l, index_matieres, commentaire_gestion, signature, thumbnail_url,
-        indexation_lang, map_equinoxe, create_date
-      ) VALUES (?, ?, ?, ?, ?, ?, '', '', '', '', '', '', '', '', '', '', '', NOW())`,
-      [
-        'a',
-        book.tit1,
-        book.year || null,
-        book.code || '',
-        book.npages || null,
-        book.ed1_id || 0
-      ]
-    )
-    const noticeId = (result as ResultSetHeader).insertId
-
-    // 2. Link author
-    if (book.author_id) {
-      await conn.query(
-        `INSERT INTO responsability (responsability_author, responsability_notice, responsability_fonction, responsability_type, responsability_ordre)
-         VALUES (?, ?, '070', 0, 0)`,
-        [book.author_id, noticeId]
+      const [result] = await conn.query(
+        `INSERT INTO notices (
+          typdoc, tit1, year, code, npages, ed1_id, n_gen, n_contenu, n_resume, lien,
+          index_l, index_matieres, commentaire_gestion, signature, thumbnail_url,
+          indexation_lang, map_equinoxe, create_date
+        ) VALUES (?, ?, ?, ?, ?, ?, '', '', '', '', '', '', '', '', '', '', '', NOW())`,
+        ['a', book.tit1, book.year || null, book.code || '', book.npages || null, book.ed1_id || 0]
       )
-    }
+      const noticeId = (result as ResultSetHeader).insertId
 
-    // 3. Link language
-    if (book.code_langue) {
-      await conn.query(
-        `INSERT INTO notices_langues (num_notice, type_langue, code_langue, ordre_langue)
-         VALUES (?, 0, ?, 0)`,
-        [noticeId, book.code_langue]
+      if (book.author_id) {
+        await conn.query(
+          `INSERT INTO responsability (responsability_author, responsability_notice, responsability_fonction, responsability_type, responsability_ordre)
+           VALUES (?, ?, '070', 0, 0)`,
+          [book.author_id, noticeId]
+        )
+      }
+
+      if (book.code_langue) {
+        await conn.query(
+          `INSERT INTO notices_langues (num_notice, type_langue, code_langue, ordre_langue)
+           VALUES (?, 0, ?, 0)`,
+          [noticeId, book.code_langue]
+        )
+      }
+
+      const [copyResult] = await conn.query(
+        `INSERT INTO exemplaires (
+          expl_cb, expl_notice, expl_bulletin, expl_typdoc, expl_cote, expl_section,
+          expl_statut, expl_location, expl_codestat, expl_owner, expl_lastempr, create_date
+        ) VALUES (?, ?, 0, 1, ?, ?, 1, 1, ?, 2, 0, NOW())`,
+        [copy.expl_cb, noticeId, copy.expl_cote, copy.expl_section, copy.expl_codestat]
       )
+      const explId = (copyResult as ResultSetHeader).insertId
+
+      await conn.commit()
+      return { noticeId, explId }
+    } catch (e) {
+      await conn.rollback()
+      throw e
+    } finally {
+      conn.release()
     }
-
-    // 4. Insert copy/exemplar
-    const [copyResult] = await conn.query(
-      `INSERT INTO exemplaires (
-        expl_cb, expl_notice, expl_bulletin, expl_typdoc, expl_cote, expl_section,
-        expl_statut, expl_location, expl_codestat, expl_owner, expl_lastempr, create_date
-      ) VALUES (?, ?, 0, 1, ?, ?, 1, 1, ?, 2, 0, NOW())`,
-      [
-        copy.expl_cb,
-        noticeId,
-        copy.expl_cote,
-        copy.expl_section,
-        copy.expl_codestat
-      ]
-    )
-    const explId = (copyResult as ResultSetHeader).insertId
-
-    return { noticeId, explId }
   },
 
   async getNextBarcode(): Promise<string> {
@@ -475,5 +459,76 @@ export const bookRepository = {
       nextBarcode = String(nextBarcodeVal).padStart(originalStr.length, '0')
     }
     return nextBarcode
+  },
+
+  async addCopyToBook(
+    noticeId: number,
+    count = 1,
+    copy?: {
+      expl_cb?: string
+      expl_cote?: string
+      expl_section?: number
+      expl_codestat?: number
+    }
+  ): Promise<Array<{ explId: number; explCb: string }>> {
+    const conn = await getDbPool().getConnection()
+    try {
+      await conn.beginTransaction()
+
+      const [bookRows] = await conn.query(
+        'SELECT notice_id FROM notices WHERE notice_id = ?',
+        [noticeId]
+      )
+      if ((bookRows as RowDataPacket[]).length === 0) {
+        throw new Error('Libro no encontrado')
+      }
+
+      const results: Array<{ explId: number; explCb: string }> = []
+      const section = copy?.expl_section ?? 13
+      const codestat = copy?.expl_codestat ?? 11
+
+      for (let i = 0; i < count; i++) {
+        let explCb: string
+        if (copy?.expl_cb && i === 0) {
+          explCb = copy.expl_cb
+        } else {
+          // Atomic barcode within the transaction
+          const [cbRows] = await conn.query(
+            `SELECT expl_cb FROM exemplaires
+             WHERE expl_cb REGEXP '^[0-9]+$' AND CAST(expl_cb AS UNSIGNED) < 1000000000
+             ORDER BY CAST(expl_cb AS UNSIGNED) DESC LIMIT 1
+             FOR UPDATE`
+          )
+          const cbArr = cbRows as RowDataPacket[]
+          let nextBarcodeVal = 10001
+          let originalStr = ''
+          if (cbArr.length > 0) {
+            originalStr = cbArr[0].expl_cb
+            nextBarcodeVal = parseInt(originalStr, 10) + 1
+          }
+          explCb = String(nextBarcodeVal)
+          if (originalStr.startsWith('0') && originalStr.length > 1) {
+            explCb = String(nextBarcodeVal).padStart(originalStr.length, '0')
+          }
+        }
+
+        const [copyResult] = await conn.query(
+          `INSERT INTO exemplaires (
+            expl_cb, expl_notice, expl_bulletin, expl_typdoc, expl_cote, expl_section,
+            expl_statut, expl_location, expl_codestat, expl_owner, expl_lastempr, create_date
+          ) VALUES (?, ?, 0, 1, ?, ?, 1, 1, ?, 2, 0, NOW())`,
+          [explCb, noticeId, copy?.expl_cote || '', section, codestat]
+        )
+        results.push({ explId: (copyResult as ResultSetHeader).insertId, explCb })
+      }
+
+      await conn.commit()
+      return results
+    } catch (e) {
+      await conn.rollback()
+      throw e
+    } finally {
+      conn.release()
+    }
   }
 }

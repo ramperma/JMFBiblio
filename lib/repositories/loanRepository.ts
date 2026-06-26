@@ -1,4 +1,4 @@
-import { getDbConnection } from '../db'
+import { getDbConnection, getDbPool } from '../db'
 import { RowDataPacket } from 'mysql2/promise'
 
 export interface Loan {
@@ -146,96 +146,134 @@ export const loanRepository = {
   },
 
   async createLoan(explCb: string, idEmpr: number, maxLoanDays: number) {
-    const conn = await getDbConnection()
+    const conn = await getDbPool().getConnection()
+    try {
+      await conn.beginTransaction()
 
-    const [exRows] = await conn.query(
-      'SELECT expl_id FROM exemplaires WHERE expl_cb = ?',
-      [explCb]
-    )
-    const exArr = exRows as RowDataPacket[]
-    if (exArr.length === 0) throw new Error('Código de barras no encontrado')
-    const explId = exArr[0].expl_id as number
+      const [exRows] = await conn.query(
+        'SELECT expl_id FROM exemplaires WHERE expl_cb = ? FOR UPDATE',
+        [explCb]
+      )
+      const exArr = exRows as RowDataPacket[]
+      if (exArr.length === 0) throw new Error('Código de barras no encontrado')
+      const explId = exArr[0].expl_id as number
 
-    const [pRows] = await conn.query(
-      'SELECT pret_idexpl FROM pret WHERE pret_idexpl = ?',
-      [explId]
-    )
-    if ((pRows as RowDataPacket[]).length > 0) throw new Error('El ejemplar ya está prestado')
+      const [pRows] = await conn.query(
+        'SELECT pret_idexpl FROM pret WHERE pret_idexpl = ? FOR UPDATE',
+        [explId]
+      )
+      if ((pRows as RowDataPacket[]).length > 0) throw new Error('El ejemplar ya está prestado')
 
-    const [emprRows] = await conn.query(
-      'SELECT id_empr FROM empr WHERE id_empr = ?',
-      [idEmpr]
-    )
-    if ((emprRows as RowDataPacket[]).length === 0) throw new Error('Usuario no encontrado')
+      const [emprRows] = await conn.query(
+        'SELECT id_empr FROM empr WHERE id_empr = ?',
+        [idEmpr]
+      )
+      if ((emprRows as RowDataPacket[]).length === 0) throw new Error('Usuario no encontrado')
 
-    const retour = new Date()
-    retour.setDate(retour.getDate() + maxLoanDays)
-    const retourStr = retour.toISOString().slice(0, 10)
+      const retour = new Date()
+      retour.setDate(retour.getDate() + maxLoanDays)
+      const retourStr = retour.toISOString().slice(0, 10)
 
-    await conn.query(
-      `INSERT INTO pret
-       (pret_idexpl, pret_idempr, pret_date, pret_retour, pret_arc_id,
-        niveau_relance, date_relance, printed, retour_initial,
-        cpt_prolongation, pret_temp, short_loan_flag)
-       VALUES (?, ?, NOW(), ?, 0, 0, '0000-00-00', 0, ?, 0, '', 0)`,
-      [explId, idEmpr, retourStr, retourStr]
-    )
+      await conn.query(
+        `INSERT INTO pret
+         (pret_idexpl, pret_idempr, pret_date, pret_retour, pret_arc_id,
+          niveau_relance, date_relance, printed, retour_initial,
+          cpt_prolongation, pret_temp, short_loan_flag)
+         VALUES (?, ?, NOW(), ?, 0, 0, '0000-00-00', 0, ?, 0, '', 0)`,
+        [explId, idEmpr, retourStr, retourStr]
+      )
 
-    return { explId, idEmpr, retourStr }
+      await conn.commit()
+      return { explId, idEmpr, retourStr }
+    } catch (e) {
+      await conn.rollback()
+      throw e
+    } finally {
+      conn.release()
+    }
   },
 
   async returnLoan(explId: number) {
-    const conn = await getDbConnection()
-    const [pRows] = await conn.query(
-      'SELECT pret_idexpl FROM pret WHERE pret_idexpl = ?',
-      [explId]
-    )
-    if ((pRows as RowDataPacket[]).length === 0) throw new Error('Préstamo no encontrado')
-    await conn.query('DELETE FROM pret WHERE pret_idexpl = ?', [explId])
+    const conn = await getDbPool().getConnection()
+    try {
+      await conn.beginTransaction()
+      const [pRows] = await conn.query(
+        'SELECT pret_idexpl FROM pret WHERE pret_idexpl = ? FOR UPDATE',
+        [explId]
+      )
+      if ((pRows as RowDataPacket[]).length === 0) throw new Error('Préstamo no encontrado')
+      await conn.query('DELETE FROM pret WHERE pret_idexpl = ?', [explId])
+      await conn.commit()
+    } catch (e) {
+      await conn.rollback()
+      throw e
+    } finally {
+      conn.release()
+    }
   },
 
   async returnLoanByBarcode(explCb: string) {
-    const conn = await getDbConnection()
-    const [exRows] = await conn.query(
-      'SELECT expl_id FROM exemplaires WHERE expl_cb = ?',
-      [explCb]
-    )
-    const exArr = exRows as RowDataPacket[]
-    if (exArr.length === 0) throw new Error('Código de barras de ejemplar no encontrado')
-    const explId = exArr[0].expl_id as number
+    const conn = await getDbPool().getConnection()
+    try {
+      await conn.beginTransaction()
 
-    const [pRows] = await conn.query(
-      'SELECT pret_idexpl FROM pret WHERE pret_idexpl = ?',
-      [explId]
-    )
-    if ((pRows as RowDataPacket[]).length === 0) throw new Error('Este ejemplar no tiene un préstamo activo')
+      const [exRows] = await conn.query(
+        'SELECT expl_id FROM exemplaires WHERE expl_cb = ? FOR UPDATE',
+        [explCb]
+      )
+      const exArr = exRows as RowDataPacket[]
+      if (exArr.length === 0) throw new Error('Código de barras de ejemplar no encontrado')
+      const explId = exArr[0].expl_id as number
 
-    await conn.query('DELETE FROM pret WHERE pret_idexpl = ?', [explId])
-    return { explId }
+      const [pRows] = await conn.query(
+        'SELECT pret_idexpl FROM pret WHERE pret_idexpl = ? FOR UPDATE',
+        [explId]
+      )
+      if ((pRows as RowDataPacket[]).length === 0) throw new Error('Este ejemplar no tiene un préstamo activo')
+
+      await conn.query('DELETE FROM pret WHERE pret_idexpl = ?', [explId])
+      await conn.commit()
+      return { explId }
+    } catch (e) {
+      await conn.rollback()
+      throw e
+    } finally {
+      conn.release()
+    }
   },
 
   async renewLoan(explId: number, maxLoanDays: number, maxRenewals: number) {
-    const conn = await getDbConnection()
-    const [pRows] = await conn.query(
-      'SELECT pret_idexpl, cpt_prolongation FROM pret WHERE pret_idexpl = ?',
-      [explId]
-    )
-    const loan = (pRows as RowDataPacket[])[0]
-    if (!loan) throw new Error('Préstamo no encontrado')
-    if (loan.cpt_prolongation >= maxRenewals) {
-      throw new Error('Máximo de renovaciones alcanzado')
+    const conn = await getDbPool().getConnection()
+    try {
+      await conn.beginTransaction()
+
+      const [pRows] = await conn.query(
+        'SELECT pret_idexpl, cpt_prolongation FROM pret WHERE pret_idexpl = ? FOR UPDATE',
+        [explId]
+      )
+      const loan = (pRows as RowDataPacket[])[0]
+      if (!loan) throw new Error('Préstamo no encontrado')
+      if (loan.cpt_prolongation >= maxRenewals) {
+        throw new Error('Máximo de renovaciones alcanzado')
+      }
+
+      const newRetour = new Date()
+      newRetour.setDate(newRetour.getDate() + maxLoanDays)
+      const retourStr = newRetour.toISOString().slice(0, 10)
+
+      await conn.query(
+        'UPDATE pret SET pret_retour = ?, cpt_prolongation = cpt_prolongation + 1 WHERE pret_idexpl = ?',
+        [retourStr, explId]
+      )
+
+      await conn.commit()
+      return { retourStr }
+    } catch (e) {
+      await conn.rollback()
+      throw e
+    } finally {
+      conn.release()
     }
-
-    const newRetour = new Date()
-    newRetour.setDate(newRetour.getDate() + maxLoanDays)
-    const retourStr = newRetour.toISOString().slice(0, 10)
-
-    await conn.query(
-      'UPDATE pret SET pret_retour = ?, cpt_prolongation = cpt_prolongation + 1 WHERE pret_idexpl = ?',
-      [retourStr, explId]
-    )
-
-    return { retourStr }
   },
 
   async getAllLoans(): Promise<LoanDetail[]> {
@@ -257,7 +295,7 @@ export const loanRepository = {
        ORDER BY p.pret_date DESC
        LIMIT 100`
     )
-    
+
     return (rows as RowDataPacket[]).map(row => ({
       pret_id: row.pret_id,
       pret_date: row.pret_date,
@@ -290,7 +328,7 @@ export const loanRepository = {
        ORDER BY p.pret_date DESC`,
       [userId]
     )
-    
+
     return (rows as RowDataPacket[]).map(row => ({
       pret_id: row.pret_id,
       pret_date: row.pret_date,
@@ -305,7 +343,7 @@ export const loanRepository = {
 
   async getActiveLoans(userId?: number): Promise<LoanDetail[]> {
     const conn = await getDbConnection()
-    
+
     let query = `SELECT
         p.pret_idexpl AS pret_id,
         p.pret_date,
@@ -320,18 +358,18 @@ export const loanRepository = {
        JOIN notices n ON n.notice_id = e.expl_notice
        JOIN empr u ON u.id_empr = p.pret_idempr
        WHERE 1 = 1`
-    
-    let params: any[] = []
-    
+
+    const params: number[] = []
+
     if (userId) {
       query += ' AND p.pret_idempr = ?'
       params.push(userId)
     }
-    
+
     query += ' ORDER BY p.pret_date DESC LIMIT 100'
-    
+
     const [rows] = await conn.query(query, params)
-    
+
     return (rows as RowDataPacket[]).map(row => ({
       pret_id: row.pret_id,
       pret_date: row.pret_date,

@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireSession } from '@/lib/auth/role-check'
 import { bookRepository } from '@/lib/repositories'
 
 export async function GET(request: NextRequest) {
+  const auth = await requireSession()
+  if (!auth.ok) {
+    return NextResponse.json({ success: false, error: auth.error }, { status: auth.status })
+  }
+
   try {
     const { searchParams } = new URL(request.url)
     const nextParam = searchParams.get('next')

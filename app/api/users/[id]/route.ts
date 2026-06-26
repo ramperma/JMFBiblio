@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCurrentSession } from '@/lib/auth'
+import { requireSession } from '@/lib/auth/role-check'
 import { userRepository } from '@/lib/repositories'
 import { loanRepository } from '@/lib/repositories'
 
@@ -11,6 +11,11 @@ export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<Params> }
 ) {
+  const auth = await requireSession()
+  if (!auth.ok) {
+    return NextResponse.json({ success: false, error: auth.error }, { status: auth.status })
+  }
+
   try {
     const { id } = await params
     const userId = parseInt(id)
@@ -54,9 +59,9 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<Params> }
 ) {
-  const session = await getCurrentSession()
-  if (!session) {
-    return NextResponse.json({ success: false, error: 'No autenticado' }, { status: 401 })
+  const auth = await requireSession()
+  if (!auth.ok) {
+    return NextResponse.json({ success: false, error: auth.error }, { status: auth.status })
   }
 
   try {

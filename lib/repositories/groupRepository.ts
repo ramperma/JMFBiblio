@@ -1,4 +1,4 @@
-import { getDbConnection } from '../db'
+import { getDbConnection, getDbPool } from '../db'
 import { ResultSetHeader, RowDataPacket } from 'mysql2/promise'
 
 export interface Group {
@@ -38,11 +38,18 @@ export const groupRepository = {
   },
 
   async deleteGroup(id: number): Promise<void> {
-    const conn = await getDbConnection()
-    // First remove all associations
-    await conn.query('DELETE FROM empr_groupe WHERE groupe_id = ?', [id])
-    // Then delete the group
-    await conn.query('DELETE FROM groupe WHERE id_groupe = ?', [id])
+    const conn = await getDbPool().getConnection()
+    try {
+      await conn.beginTransaction()
+      await conn.query('DELETE FROM empr_groupe WHERE groupe_id = ?', [id])
+      await conn.query('DELETE FROM groupe WHERE id_groupe = ?', [id])
+      await conn.commit()
+    } catch (e) {
+      await conn.rollback()
+      throw e
+    } finally {
+      conn.release()
+    }
   },
 
   async addUserToGroup(userId: number, groupId: number): Promise<void> {
@@ -62,14 +69,20 @@ export const groupRepository = {
   },
 
   async transferGroupMembers(fromGroupId: number, toGroupId: number): Promise<void> {
-    const conn = await getDbConnection()
-    await conn.query(
-      'UPDATE IGNORE empr_groupe SET groupe_id = ? WHERE groupe_id = ?',
-      [toGroupId, fromGroupId]
-    )
-    await conn.query(
-      'DELETE FROM empr_groupe WHERE groupe_id = ?',
-      [fromGroupId]
-    )
+    const conn = await getDbPool().getConnection()
+    try {
+      await conn.beginTransaction()
+      await conn.query(
+        'UPDATE IGNORE empr_groupe SET groupe_id = ? WHERE groupe_id = ?',
+        [toGroupId, fromGroupId]
+      )
+      await conn.query('DELETE FROM empr_groupe WHERE groupe_id = ?', [fromGroupId])
+      await conn.commit()
+    } catch (e) {
+      await conn.rollback()
+      throw e
+    } finally {
+      conn.release()
+    }
   }
 }

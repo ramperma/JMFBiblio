@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { loanRepository } from '@/lib/repositories'
 import { configRepository } from '@/lib/repositories'
-import { getCurrentSession } from '@/lib/auth'
+import { requireSession } from '@/lib/auth/role-check'
 
 export async function GET(request: NextRequest) {
+  const auth = await requireSession()
+  if (!auth.ok) {
+    return NextResponse.json({ success: false, error: auth.error }, { status: auth.status })
+  }
+
   try {
     const { searchParams } = new URL(request.url)
     const activeOnly = searchParams.get('activeOnly') === 'true'
@@ -62,9 +67,9 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const session = await getCurrentSession()
-  if (!session) {
-    return NextResponse.json({ success: false, error: 'No autenticado' }, { status: 401 })
+  const auth = await requireSession()
+  if (!auth.ok) {
+    return NextResponse.json({ success: false, error: auth.error }, { status: auth.status })
   }
 
   let body: Record<string, unknown>

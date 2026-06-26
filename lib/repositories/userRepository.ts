@@ -1,4 +1,4 @@
-import { getDbConnection } from '../db'
+import { getDbConnection, getDbPool } from '../db'
 import { ResultSetHeader, RowDataPacket } from 'mysql2/promise'
 
 export interface User {
@@ -152,67 +152,91 @@ export const userRepository = {
     empr_categ?: number
     groupId?: number
   }) {
-    const conn = await getDbConnection()
-    const loginBase = `${input.empr_nom}.${input.empr_prenom}`.toLowerCase().replace(/\s+/g, '_')
-    const login = `${loginBase}_${Date.now()}`
+    const conn = await getDbPool().getConnection()
+    try {
+      await conn.beginTransaction()
 
-    const adhesion = input.empr_date_adhesion || new Date().toISOString().split('T')[0]
-    const expiration = input.empr_date_expiration || (() => {
-      const d = new Date()
-      d.setFullYear(d.getFullYear() + 1)
-      return d.toISOString().split('T')[0]
-    })()
+      const loginBase = `${input.empr_nom}.${input.empr_prenom}`.toLowerCase().replace(/\s+/g, '_')
+      const login = `${loginBase}_${Date.now()}`
 
-    let finalCb = input.empr_cb ? input.empr_cb.trim() : ''
-    if (!finalCb) {
-      finalCb = await userRepository.getNextBarcode()
-    }
+      const adhesion = input.empr_date_adhesion || new Date().toISOString().split('T')[0]
+      const expiration = input.empr_date_expiration || (() => {
+        const d = new Date()
+        d.setFullYear(d.getFullYear() + 1)
+        return d.toISOString().split('T')[0]
+      })()
 
-    const [result] = await conn.query(
-      `INSERT INTO empr (
-        empr_nom, empr_prenom, empr_cb, empr_adr1, empr_adr2, empr_cp,
-        empr_ville, empr_pays, empr_mail, empr_tel1, empr_tel2, empr_prof,
-        empr_login, empr_password, empr_digest, cle_validation,
-        empr_pnb_password, empr_pnb_password_hint,
-        empr_sexe, empr_year, empr_date_adhesion, empr_date_expiration, empr_categ
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        input.empr_nom,
-        input.empr_prenom,
-        finalCb,
-        '',
-        '',
-        '',
-        input.empr_ville || 'Valencia',
-        '',
-        input.empr_mail || '',
-        input.empr_tel1 || '',
-        '',
-        '',
-        login,
-        '',
-        '',
-        '',
-        '',
-        '',
-        input.empr_sexe || 0,
-        input.empr_year || 0,
-        adhesion,
-        expiration,
-        input.empr_categ || 6
-      ]
-    )
+      let finalCb = input.empr_cb ? input.empr_cb.trim() : ''
+      if (!finalCb) {
+        // Atomic: lock the max row so no concurrent request gets the same barcode
+        const [cbRows] = await conn.query(
+          `SELECT empr_cb FROM empr
+           WHERE empr_cb REGEXP '^[0-9]+$'
+           ORDER BY CAST(empr_cb AS UNSIGNED) DESC
+           LIMIT 1
+           FOR UPDATE`
+        )
+        const cbArr = cbRows as RowDataPacket[]
+        let nextVal = 1000000001
+        if (cbArr.length > 0) {
+          const last = parseInt(cbArr[0].empr_cb, 10)
+          if (!isNaN(last)) nextVal = last + 1
+        }
+        finalCb = String(nextVal).padStart(10, '0')
+      }
 
-    const insertId = (result as ResultSetHeader).insertId
-
-    if (input.groupId) {
-      await conn.query(
-        'INSERT IGNORE INTO empr_groupe (empr_id, groupe_id) VALUES (?, ?)',
-        [insertId, input.groupId]
+      const [result] = await conn.query(
+        `INSERT INTO empr (
+          empr_nom, empr_prenom, empr_cb, empr_adr1, empr_adr2, empr_cp,
+          empr_ville, empr_pays, empr_mail, empr_tel1, empr_tel2, empr_prof,
+          empr_login, empr_password, empr_digest, cle_validation,
+          empr_pnb_password, empr_pnb_password_hint,
+          empr_sexe, empr_year, empr_date_adhesion, empr_date_expiration, empr_categ
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          input.empr_nom,
+          input.empr_prenom,
+          finalCb,
+          '',
+          '',
+          '',
+          input.empr_ville || 'Valencia',
+          '',
+          input.empr_mail || '',
+          input.empr_tel1 || '',
+          '',
+          '',
+          login,
+          '',
+          '',
+          '',
+          '',
+          '',
+          input.empr_sexe || 0,
+          input.empr_year || 0,
+          adhesion,
+          expiration,
+          input.empr_categ || 6
+        ]
       )
-    }
 
-    return insertId
+      const insertId = (result as ResultSetHeader).insertId
+
+      if (input.groupId) {
+        await conn.query(
+          'INSERT IGNORE INTO empr_groupe (empr_id, groupe_id) VALUES (?, ?)',
+          [insertId, input.groupId]
+        )
+      }
+
+      await conn.commit()
+      return insertId
+    } catch (e) {
+      await conn.rollback()
+      throw e
+    } finally {
+      conn.release()
+    }
   },
 
   async updateUser(
@@ -232,69 +256,43 @@ export const userRepository = {
       groupId?: number | null
     }
   ) {
-    const conn = await getDbConnection()
-    const updates: string[] = []
-    const params: Array<string | number | null> = []
+    const conn = await getDbPool().getConnection()
+    try {
+      await conn.beginTransaction()
 
-    if (input.empr_nom !== undefined) {
-      updates.push('empr_nom = ?')
-      params.push(input.empr_nom)
-    }
-    if (input.empr_prenom !== undefined) {
-      updates.push('empr_prenom = ?')
-      params.push(input.empr_prenom)
-    }
-    if (input.empr_cb !== undefined) {
-      updates.push('empr_cb = ?')
-      params.push(input.empr_cb || null)
-    }
-    if (input.empr_mail !== undefined) {
-      updates.push('empr_mail = ?')
-      params.push(input.empr_mail)
-    }
-    if (input.empr_tel1 !== undefined) {
-      updates.push('empr_tel1 = ?')
-      params.push(input.empr_tel1)
-    }
-    if (input.empr_sexe !== undefined) {
-      updates.push('empr_sexe = ?')
-      params.push(input.empr_sexe)
-    }
-    if (input.empr_year !== undefined) {
-      updates.push('empr_year = ?')
-      params.push(input.empr_year)
-    }
-    if (input.empr_ville !== undefined) {
-      updates.push('empr_ville = ?')
-      params.push(input.empr_ville)
-    }
-    if (input.empr_date_adhesion !== undefined) {
-      updates.push('empr_date_adhesion = ?')
-      params.push(input.empr_date_adhesion)
-    }
-    if (input.empr_date_expiration !== undefined) {
-      updates.push('empr_date_expiration = ?')
-      params.push(input.empr_date_expiration)
-    }
-    if (input.empr_categ !== undefined) {
-      updates.push('empr_categ = ?')
-      params.push(input.empr_categ)
-    }
+      const updates: string[] = []
+      const params: Array<string | number | null> = []
 
-    if (updates.length > 0) {
-      params.push(id)
-      await conn.query(`UPDATE empr SET ${updates.join(', ')} WHERE id_empr = ?`, params)
-    }
+      if (input.empr_nom !== undefined) { updates.push('empr_nom = ?'); params.push(input.empr_nom) }
+      if (input.empr_prenom !== undefined) { updates.push('empr_prenom = ?'); params.push(input.empr_prenom) }
+      if (input.empr_cb !== undefined) { updates.push('empr_cb = ?'); params.push(input.empr_cb || null) }
+      if (input.empr_mail !== undefined) { updates.push('empr_mail = ?'); params.push(input.empr_mail) }
+      if (input.empr_tel1 !== undefined) { updates.push('empr_tel1 = ?'); params.push(input.empr_tel1) }
+      if (input.empr_sexe !== undefined) { updates.push('empr_sexe = ?'); params.push(input.empr_sexe) }
+      if (input.empr_year !== undefined) { updates.push('empr_year = ?'); params.push(input.empr_year) }
+      if (input.empr_ville !== undefined) { updates.push('empr_ville = ?'); params.push(input.empr_ville) }
+      if (input.empr_date_adhesion !== undefined) { updates.push('empr_date_adhesion = ?'); params.push(input.empr_date_adhesion) }
+      if (input.empr_date_expiration !== undefined) { updates.push('empr_date_expiration = ?'); params.push(input.empr_date_expiration) }
+      if (input.empr_categ !== undefined) { updates.push('empr_categ = ?'); params.push(input.empr_categ) }
 
-    if (input.groupId !== undefined) {
-      // Remove old groups
-      await conn.query('DELETE FROM empr_groupe WHERE empr_id = ?', [id])
-      if (input.groupId !== null && input.groupId > 0) {
-        await conn.query('INSERT IGNORE INTO empr_groupe (empr_id, groupe_id) VALUES (?, ?)', [
-          id,
-          input.groupId
-        ])
+      if (updates.length > 0) {
+        params.push(id)
+        await conn.query(`UPDATE empr SET ${updates.join(', ')} WHERE id_empr = ?`, params)
       }
+
+      if (input.groupId !== undefined) {
+        await conn.query('DELETE FROM empr_groupe WHERE empr_id = ?', [id])
+        if (input.groupId !== null && input.groupId > 0) {
+          await conn.query('INSERT IGNORE INTO empr_groupe (empr_id, groupe_id) VALUES (?, ?)', [id, input.groupId])
+        }
+      }
+
+      await conn.commit()
+    } catch (e) {
+      await conn.rollback()
+      throw e
+    } finally {
+      conn.release()
     }
   },
 

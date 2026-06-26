@@ -12,6 +12,14 @@ export type AdminCheckResult =
   | { ok: true; session: AdminSession }
   | { ok: false; status: number; error: string }
 
+export async function requireSession(): Promise<AdminCheckResult> {
+  const session = await getCurrentSession()
+  if (!session) {
+    return { ok: false, status: 401, error: 'No autenticado' }
+  }
+  return { ok: true, session }
+}
+
 export async function requireAdmin(): Promise<AdminCheckResult> {
   const session = await getCurrentSession()
   if (!session) {

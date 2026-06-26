@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCurrentSession } from '@/lib/auth'
+import { requireSession } from '@/lib/auth/role-check'
 import { userRepository } from '@/lib/repositories'
 
 export async function GET(request: NextRequest) {
+  const auth = await requireSession()
+  if (!auth.ok) {
+    return NextResponse.json({ success: false, error: auth.error }, { status: auth.status })
+  }
+
   try {
     const { searchParams } = new URL(request.url)
     if (searchParams.get('nextBarcode') === 'true') {
@@ -58,9 +63,9 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const session = await getCurrentSession()
-  if (!session) {
-    return NextResponse.json({ success: false, error: 'No autenticado' }, { status: 401 })
+  const auth = await requireSession()
+  if (!auth.ok) {
+    return NextResponse.json({ success: false, error: auth.error }, { status: auth.status })
   }
 
   try {
