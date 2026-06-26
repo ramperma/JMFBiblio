@@ -346,6 +346,24 @@ export default function Home() {
     fetchGroupsAndCategoriesAndMetadata()
   }, [session])
 
+  const fetchNextUserBarcode = useCallback(async () => {
+    try {
+      const res = await fetch('/api/users?nextBarcode=true')
+      const data = await res.json()
+      if (data.success && data.data && data.data.nextBarcode) {
+        setNewUser(prev => ({ ...prev, empr_cb: data.data.nextBarcode }))
+      }
+    } catch (err) {
+      console.error('Error fetching next user barcode:', err)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (session && activeTab === 'users') {
+      fetchNextUserBarcode()
+    }
+  }, [session, activeTab, refreshKey, fetchNextUserBarcode])
+
   useEffect(() => {
     if (!session || activeTab !== 'groups' || selectedGroup === null) {
       setSelectedGroupUsers([])
@@ -1150,6 +1168,8 @@ export default function Home() {
       groupId: ''
     })
     setUsersPagination(prev => ({ ...prev, page: 1 }))
+    setRefreshKey(k => k + 1)
+    fetchNextUserBarcode()
   }
 
   const patchBook = async (id: number, payload: Record<string, unknown>) => {

@@ -163,6 +163,11 @@ export const userRepository = {
       return d.toISOString().split('T')[0]
     })()
 
+    let finalCb = input.empr_cb ? input.empr_cb.trim() : ''
+    if (!finalCb) {
+      finalCb = await userRepository.getNextBarcode()
+    }
+
     const [result] = await conn.query(
       `INSERT INTO empr (
         empr_nom, empr_prenom, empr_cb, empr_adr1, empr_adr2, empr_cp,
@@ -174,7 +179,7 @@ export const userRepository = {
       [
         input.empr_nom,
         input.empr_prenom,
-        input.empr_cb || null,
+        finalCb,
         '',
         '',
         '',
@@ -396,5 +401,25 @@ export const userRepository = {
       id_categ_empr: row.id_categ_empr,
       libelle: row.libelle
     }))
+  },
+
+  async getNextBarcode(): Promise<string> {
+    const conn = await getDbConnection()
+    const [rows] = await conn.query(
+      `SELECT empr_cb FROM empr 
+       WHERE empr_cb REGEXP '^[0-9]+$' 
+       ORDER BY CAST(empr_cb AS UNSIGNED) DESC 
+       LIMIT 1`
+    )
+    const resultRows = rows as RowDataPacket[]
+    if (resultRows.length === 0) {
+      return '1000000001'
+    }
+    const lastBarcode = resultRows[0].empr_cb
+    const lastNum = parseInt(lastBarcode, 10)
+    if (isNaN(lastNum)) {
+      return '1000000001'
+    }
+    return String(lastNum + 1).padStart(10, '0')
   }
 }

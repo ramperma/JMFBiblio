@@ -5,6 +5,10 @@ import { userRepository } from '@/lib/repositories'
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
+    if (searchParams.get('nextBarcode') === 'true') {
+      const nextBarcode = await userRepository.getNextBarcode()
+      return NextResponse.json({ success: true, data: { nextBarcode } })
+    }
     const query = searchParams.get('q') || undefined
     const sortBy = (searchParams.get('sortBy') || 'empr_nom') as
       | 'id_empr'
