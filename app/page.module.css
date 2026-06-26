@@ -256,7 +256,9 @@
 .formRow input,
 .paginationBar select,
 .actionsRow input,
-.actionsRow select {
+.actionsRow select,
+.formGridGroup input,
+.formGridGroup select {
   padding: 0.65rem 0.75rem;
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -273,7 +275,9 @@
 .formRow input:focus,
 .paginationBar select:focus,
 .actionsRow input:focus,
-.actionsRow select:focus {
+.actionsRow select:focus,
+.formGridGroup input:focus,
+.formGridGroup select:focus {
   outline: none;
   border-color: var(--primary);
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
@@ -1129,7 +1133,8 @@
   color: var(--text-primary);
 }
 
-.modalFormGroup input {
+.modalFormGroup input,
+.modalFormGroup select {
   padding: 0.65rem 0.75rem;
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -1140,7 +1145,8 @@
   transition: all 0.2s ease;
 }
 
-.modalFormGroup input:focus {
+.modalFormGroup input:focus,
+.modalFormGroup select:focus {
   outline: none;
   border-color: var(--primary);
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
@@ -1209,6 +1215,27 @@
   justify-content: flex-end;
   margin-top: 0.5rem;
 }
+
+.textInput,
+.selectField {
+  width: 100%;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font: inherit;
+  font-size: 0.9rem;
+  transition: all 0.2s ease;
+  background: var(--bg-white);
+  color: var(--text-primary);
+}
+
+.textInput:focus,
+.selectField:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
 
 
 

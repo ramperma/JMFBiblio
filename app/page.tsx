@@ -1370,23 +1370,24 @@ export default function Home() {
                 
                 <div className={styles.formGridGroup}>
                   <label>Título propio *</label>
-                  <input placeholder="Título del libro" value={newBook.tit1} onChange={(e) => setNewBook(prev => ({ ...prev, tit1: e.target.value }))} required />
+                  <input className={styles.textInput} placeholder="Título del libro" value={newBook.tit1} onChange={(e) => setNewBook(prev => ({ ...prev, tit1: e.target.value }))} required />
                 </div>
                 
                 <div className={styles.formGridGroup}>
                   <label>ISBN / Código *</label>
-                  <input placeholder="ISBN o Código" value={newBook.code} onChange={(e) => setNewBook(prev => ({ ...prev, code: e.target.value }))} required />
+                  <input className={styles.textInput} placeholder="ISBN o Código" value={newBook.code} onChange={(e) => setNewBook(prev => ({ ...prev, code: e.target.value }))} required />
                 </div>
                 
                 <div className={styles.formGridGroup}>
                   <label>Año de edición</label>
-                  <input placeholder="Año (ej: 2012)" value={newBook.year} onChange={(e) => setNewBook(prev => ({ ...prev, year: e.target.value }))} />
+                  <input className={styles.textInput} placeholder="Año (ej: 2012)" value={newBook.year} onChange={(e) => setNewBook(prev => ({ ...prev, year: e.target.value }))} />
                 </div>
 
                 <div className={styles.formGridGroup} style={{ position: 'relative' }}>
                   <label>Autor principal</label>
                   <div className={styles.searchInline}>
                     <input
+                      className={styles.textInput}
                       placeholder="Buscar o escribir autor..."
                       value={newBook.author_name}
                       onChange={(e) => searchAuthors(e.target.value)}
@@ -1411,6 +1412,7 @@ export default function Home() {
                   <label>Editorial</label>
                   <div className={styles.searchInline}>
                     <input
+                      className={styles.textInput}
                       placeholder="Buscar o escribir editorial..."
                       value={newBook.ed_name}
                       onChange={(e) => searchPublishers(e.target.value)}
@@ -1433,12 +1435,12 @@ export default function Home() {
 
                 <div className={styles.formGridGroup}>
                   <label>Colación (Páginas)</label>
-                  <input placeholder="Número de páginas" value={newBook.npages} onChange={(e) => setNewBook(prev => ({ ...prev, npages: e.target.value }))} />
+                  <input className={styles.textInput} placeholder="Número de páginas" value={newBook.npages} onChange={(e) => setNewBook(prev => ({ ...prev, npages: e.target.value }))} />
                 </div>
 
                 <div className={styles.formGridGroup}>
                   <label>Idioma</label>
-                  <select value={newBook.code_langue} onChange={(e) => setNewBook(prev => ({ ...prev, code_langue: e.target.value }))}>
+                  <select className={styles.selectField} value={newBook.code_langue} onChange={(e) => setNewBook(prev => ({ ...prev, code_langue: e.target.value }))}>
                     <option value="spa">Español (spa)</option>
                     <option value="cat">Catalán / Valenciano (cat)</option>
                     <option value="eng">Inglés (eng)</option>
@@ -1457,6 +1459,7 @@ export default function Home() {
                 <div className={styles.formGridGroup}>
                   <label>Código de barras del colegio *</label>
                   <input
+                    className={styles.textInput}
                     placeholder="Código del ejemplar"
                     value={newCopy.expl_cb}
                     onChange={(e) => setNewCopy(prev => ({ ...prev, expl_cb: e.target.value }))}
@@ -1467,6 +1470,7 @@ export default function Home() {
                 <div className={styles.formGridGroup}>
                   <label>Sección *</label>
                   <select
+                    className={styles.selectField}
                     value={newCopy.expl_section}
                     onChange={(e) => {
                       const secId = e.target.value
@@ -1485,6 +1489,7 @@ export default function Home() {
                 <div className={styles.formGridGroup}>
                   <label>Código Estadístico *</label>
                   <select
+                    className={styles.selectField}
                     value={newCopy.expl_codestat}
                     onChange={(e) => setNewCopy(prev => ({ ...prev, expl_codestat: e.target.value }))}
                     required
@@ -1499,6 +1504,7 @@ export default function Home() {
                 <div className={styles.formGridGroup}>
                   <label>Signatura calculada (Editable) *</label>
                   <input
+                    className={styles.textInput}
                     placeholder="Signatura (ej: C-7 1y2PRI CER don qui)"
                     value={newCopy.expl_cote}
                     onChange={(e) => setNewCopy(prev => ({ ...prev, expl_cote: e.target.value }))}
@@ -1620,19 +1626,19 @@ export default function Home() {
               
               <div className={styles.formGridGroup}>
                 <label>Apellido *</label>
-                <input placeholder="Apellido" value={newUser.empr_nom} onChange={(e) => setNewUser(prev => ({ ...prev, empr_nom: e.target.value }))} required />
+                <input className={styles.textInput} placeholder="Apellido" value={newUser.empr_nom} onChange={(e) => setNewUser(prev => ({ ...prev, empr_nom: e.target.value }))} required />
               </div>
               <div className={styles.formGridGroup}>
                 <label>Nombre *</label>
-                <input placeholder="Nombre" value={newUser.empr_prenom} onChange={(e) => setNewUser(prev => ({ ...prev, empr_prenom: e.target.value }))} required />
+                <input className={styles.textInput} placeholder="Nombre" value={newUser.empr_prenom} onChange={(e) => setNewUser(prev => ({ ...prev, empr_prenom: e.target.value }))} required />
               </div>
               <div className={styles.formGridGroup}>
                 <label>Carné / Código de Barras</label>
-                <input placeholder="Carne" value={newUser.empr_cb} onChange={(e) => setNewUser(prev => ({ ...prev, empr_cb: e.target.value }))} />
+                <input className={styles.textInput} placeholder="Carne" value={newUser.empr_cb} onChange={(e) => setNewUser(prev => ({ ...prev, empr_cb: e.target.value }))} />
               </div>
               <div className={styles.formGridGroup}>
                 <label>Sexo</label>
-                <select value={newUser.empr_sexe} onChange={(e) => setNewUser(prev => ({ ...prev, empr_sexe: parseInt(e.target.value, 10) }))}>
+                <select className={styles.selectField} value={newUser.empr_sexe} onChange={(e) => setNewUser(prev => ({ ...prev, empr_sexe: parseInt(e.target.value, 10) }))}>
                   <option value={0}>No especificado</option>
                   <option value={1}>Hombre</option>
                   <option value={2}>Mujer</option>
@@ -1640,15 +1646,15 @@ export default function Home() {
               </div>
               <div className={styles.formGridGroup}>
                 <label>Año de Nacimiento</label>
-                <input type="number" min={1900} max={new Date().getFullYear()} value={newUser.empr_year} onChange={(e) => setNewUser(prev => ({ ...prev, empr_year: parseInt(e.target.value, 10) || 0 }))} />
+                <input className={styles.textInput} type="number" min={1900} max={new Date().getFullYear()} value={newUser.empr_year} onChange={(e) => setNewUser(prev => ({ ...prev, empr_year: parseInt(e.target.value, 10) || 0 }))} />
               </div>
               <div className={styles.formGridGroup}>
                 <label>Población</label>
-                <input placeholder="Poblacion" value={newUser.empr_ville} onChange={(e) => setNewUser(prev => ({ ...prev, empr_ville: e.target.value }))} />
+                <input className={styles.textInput} placeholder="Poblacion" value={newUser.empr_ville} onChange={(e) => setNewUser(prev => ({ ...prev, empr_ville: e.target.value }))} />
               </div>
               <div className={styles.formGridGroup}>
                 <label>Categoría</label>
-                <select value={newUser.empr_categ} onChange={(e) => setNewUser(prev => ({ ...prev, empr_categ: parseInt(e.target.value, 10) }))}>
+                <select className={styles.selectField} value={newUser.empr_categ} onChange={(e) => setNewUser(prev => ({ ...prev, empr_categ: parseInt(e.target.value, 10) }))}>
                   {userCategories.map(c => (
                     <option key={c.id_categ_empr} value={c.id_categ_empr}>{c.libelle}</option>
                   ))}
@@ -1656,7 +1662,7 @@ export default function Home() {
               </div>
               <div className={styles.formGridGroup}>
                 <label>Añadir al Grupo / Curso</label>
-                <select value={newUser.groupId} onChange={(e) => setNewUser(prev => ({ ...prev, groupId: e.target.value }))}>
+                <select className={styles.selectField} value={newUser.groupId} onChange={(e) => setNewUser(prev => ({ ...prev, groupId: e.target.value }))}>
                   <option value="">Ninguno</option>
                   {groups.map(g => (
                     <option key={g.id_groupe} value={g.id_groupe}>{g.libelle_groupe}</option>
@@ -1665,19 +1671,19 @@ export default function Home() {
               </div>
               <div className={styles.formGridGroup}>
                 <label>Email</label>
-                <input type="email" placeholder="Email" value={newUser.empr_mail} onChange={(e) => setNewUser(prev => ({ ...prev, empr_mail: e.target.value }))} />
+                <input className={styles.textInput} type="email" placeholder="Email" value={newUser.empr_mail} onChange={(e) => setNewUser(prev => ({ ...prev, empr_mail: e.target.value }))} />
               </div>
               <div className={styles.formGridGroup}>
                 <label>Teléfono</label>
-                <input placeholder="Telefono" value={newUser.empr_tel1} onChange={(e) => setNewUser(prev => ({ ...prev, empr_tel1: e.target.value }))} />
+                <input className={styles.textInput} placeholder="Telefono" value={newUser.empr_tel1} onChange={(e) => setNewUser(prev => ({ ...prev, empr_tel1: e.target.value }))} />
               </div>
               <div className={styles.formGridGroup}>
                 <label>Válido Desde</label>
-                <input type="date" value={newUser.empr_date_adhesion} onChange={(e) => setNewUser(prev => ({ ...prev, empr_date_adhesion: e.target.value }))} />
+                <input className={styles.textInput} type="date" value={newUser.empr_date_adhesion} onChange={(e) => setNewUser(prev => ({ ...prev, empr_date_adhesion: e.target.value }))} />
               </div>
               <div className={styles.formGridGroup}>
                 <label>Válido Hasta</label>
-                <input type="date" value={newUser.empr_date_expiration} onChange={(e) => setNewUser(prev => ({ ...prev, empr_date_expiration: e.target.value }))} />
+                <input className={styles.textInput} type="date" value={newUser.empr_date_expiration} onChange={(e) => setNewUser(prev => ({ ...prev, empr_date_expiration: e.target.value }))} />
               </div>
 
               <div className={styles.formGridActions}>
@@ -1916,20 +1922,20 @@ export default function Home() {
                 <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
                   Esta utilidad permite traspasar masivamente todos los alumnos de un grupo a otro (por ejemplo, de &quot;ESO 3º&quot; a &quot;ESO 4º&quot;).
                 </p>
-                <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-                    <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Grupo Origen</label>
-                    <select id="promoFromGroup" defaultValue="" style={{ padding: '0.4rem', border: '1px solid var(--border)', borderRadius: 'var(--radius)' }}>
+                <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap', width: '100%' }}>
+                  <div className={styles.formGridGroup} style={{ flex: 1, minWidth: '150px' }}>
+                    <label>Grupo Origen</label>
+                    <select id="promoFromGroup" defaultValue="" className={styles.selectField}>
                       <option value="">Seleccionar...</option>
                       {groups.map(g => (
                         <option key={g.id_groupe} value={g.id_groupe}>{g.libelle_groupe}</option>
                       ))}
                     </select>
                   </div>
-                  <div style={{ fontSize: '1.2rem', alignSelf: 'flex-end', paddingBottom: '0.4rem' }}>&rarr;</div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-                    <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Grupo Destino</label>
-                    <select id="promoToGroup" defaultValue="" style={{ padding: '0.4rem', border: '1px solid var(--border)', borderRadius: 'var(--radius)' }}>
+                  <div style={{ fontSize: '1.2rem', alignSelf: 'center', marginTop: '1.2rem' }}>&rarr;</div>
+                  <div className={styles.formGridGroup} style={{ flex: 1, minWidth: '150px' }}>
+                    <label>Grupo Destino</label>
+                    <select id="promoToGroup" defaultValue="" className={styles.selectField}>
                       <option value="">Seleccionar...</option>
                       {groups.map(g => (
                         <option key={g.id_groupe} value={g.id_groupe}>{g.libelle_groupe}</option>
@@ -1938,7 +1944,7 @@ export default function Home() {
                   </div>
                   <button
                     type="button"
-                    style={{ alignSelf: 'flex-end', background: 'var(--primary)', color: 'white', border: 'none', padding: '0.6rem 1.2rem', borderRadius: 'var(--radius)', cursor: 'pointer', fontWeight: 600 }}
+                    style={{ alignSelf: 'flex-end', marginTop: '1.2rem' }}
                     onClick={async () => {
                       const fromSelect = document.getElementById('promoFromGroup') as HTMLSelectElement
                       const toSelect = document.getElementById('promoToGroup') as HTMLSelectElement
@@ -2100,6 +2106,7 @@ export default function Home() {
                     <label>Código de barras del ejemplar</label>
                     <input
                       ref={quickReturnInputRef}
+                      className={styles.textInput}
                       placeholder="Escanear o introducir código de barras..."
                       value={quickReturnBarcode}
                       onChange={(e) => setQuickReturnBarcode(e.target.value)}
@@ -2614,19 +2621,19 @@ export default function Home() {
                   <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Generador libre de etiquetas adhesivas en PDF</span>
                 </div>
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-                    <label style={{ fontSize: '0.85rem', fontWeight: 600 }}>Código de barra inicial *</label>
-                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  <div className={styles.formGridGroup}>
+                    <label>Código de barra inicial *</label>
+                    <div className={styles.searchInline}>
                       <input
+                        className={styles.textInput}
                         placeholder="Ej: 10001 o 010001"
                         value={barcodeStart}
                         onChange={(e) => setBarcodeStart(e.target.value)}
-                        style={{ flex: 1, padding: '0.4rem', border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'white', color: 'black' }}
                       />
                       <button
                         type="button"
-                        style={{ padding: '0.4rem 0.8rem', fontSize: '0.8rem', background: 'var(--border)', border: 'none', borderRadius: 'var(--radius)', cursor: 'pointer' }}
+                        style={{ padding: '0.65rem 1rem' }}
                         onClick={async () => {
                           try {
                             const res = await fetch('/api/books/copies?next=1')
@@ -2644,12 +2651,12 @@ export default function Home() {
                     </div>
                   </div>
 
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-                    <label style={{ fontSize: '0.85rem', fontWeight: 600 }}>Cantidad a generar *</label>
+                  <div className={styles.formGridGroup}>
+                    <label>Cantidad a generar *</label>
                     <select
+                      className={styles.selectField}
                       value={barcodeCount}
                       onChange={(e) => setBarcodeCount(e.target.value)}
-                      style={{ padding: '0.4rem', border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'white', color: 'black' }}
                     >
                       <option value="24">24 etiquetas (1 página)</option>
                       <option value="48">48 etiquetas (2 páginas)</option>
@@ -2742,6 +2749,7 @@ export default function Home() {
                     <label htmlFor="edit_user_nom">Apellido</label>
                     <input
                       id="edit_user_nom"
+                      className={styles.textInput}
                       value={editingUserForm.empr_nom}
                       onChange={(e) => setEditingUserForm(prev => ({ ...prev, empr_nom: e.target.value }))}
                       required
@@ -2751,6 +2759,7 @@ export default function Home() {
                     <label htmlFor="edit_user_prenom">Nombre</label>
                     <input
                       id="edit_user_prenom"
+                      className={styles.textInput}
                       value={editingUserForm.empr_prenom}
                       onChange={(e) => setEditingUserForm(prev => ({ ...prev, empr_prenom: e.target.value }))}
                       required
@@ -2760,6 +2769,7 @@ export default function Home() {
                     <label htmlFor="edit_user_cb">Carné</label>
                     <input
                       id="edit_user_cb"
+                      className={styles.textInput}
                       value={editingUserForm.empr_cb}
                       onChange={(e) => setEditingUserForm(prev => ({ ...prev, empr_cb: e.target.value }))}
                     />
@@ -2768,7 +2778,7 @@ export default function Home() {
                     <label htmlFor="edit_user_sexe">Sexo</label>
                     <select
                       id="edit_user_sexe"
-                      style={{ padding: '0.65rem 0.75rem', border: '1px solid var(--border)', borderRadius: 'var(--radius)', font: 'inherit', fontSize: '0.9rem' }}
+                      className={styles.selectField}
                       value={editingUserForm.empr_sexe}
                       onChange={(e) => setEditingUserForm(prev => ({ ...prev, empr_sexe: parseInt(e.target.value, 10) }))}
                     >
@@ -2782,6 +2792,7 @@ export default function Home() {
                     <input
                       id="edit_user_year"
                       type="number"
+                      className={styles.textInput}
                       value={editingUserForm.empr_year}
                       onChange={(e) => setEditingUserForm(prev => ({ ...prev, empr_year: parseInt(e.target.value, 10) || 0 }))}
                     />
@@ -2790,6 +2801,7 @@ export default function Home() {
                     <label htmlFor="edit_user_ville">Población</label>
                     <input
                       id="edit_user_ville"
+                      className={styles.textInput}
                       value={editingUserForm.empr_ville}
                       onChange={(e) => setEditingUserForm(prev => ({ ...prev, empr_ville: e.target.value }))}
                     />
@@ -2798,7 +2810,7 @@ export default function Home() {
                     <label htmlFor="edit_user_categ">Categoría</label>
                     <select
                       id="edit_user_categ"
-                      style={{ padding: '0.65rem 0.75rem', border: '1px solid var(--border)', borderRadius: 'var(--radius)', font: 'inherit', fontSize: '0.9rem' }}
+                      className={styles.selectField}
                       value={editingUserForm.empr_categ}
                       onChange={(e) => setEditingUserForm(prev => ({ ...prev, empr_categ: parseInt(e.target.value, 10) }))}
                     >
@@ -2811,7 +2823,7 @@ export default function Home() {
                     <label htmlFor="edit_user_group">Grupo / Curso</label>
                     <select
                       id="edit_user_group"
-                      style={{ padding: '0.65rem 0.75rem', border: '1px solid var(--border)', borderRadius: 'var(--radius)', font: 'inherit', fontSize: '0.9rem' }}
+                      className={styles.selectField}
                       value={editingUserForm.groupId}
                       onChange={(e) => setEditingUserForm(prev => ({ ...prev, groupId: e.target.value }))}
                     >
@@ -2826,6 +2838,7 @@ export default function Home() {
                     <input
                       id="edit_user_mail"
                       type="email"
+                      className={styles.textInput}
                       value={editingUserForm.empr_mail}
                       onChange={(e) => setEditingUserForm(prev => ({ ...prev, empr_mail: e.target.value }))}
                     />
@@ -2834,6 +2847,7 @@ export default function Home() {
                     <label htmlFor="edit_user_tel">Teléfono</label>
                     <input
                       id="edit_user_tel"
+                      className={styles.textInput}
                       value={editingUserForm.empr_tel1}
                       onChange={(e) => setEditingUserForm(prev => ({ ...prev, empr_tel1: e.target.value }))}
                     />
@@ -2843,6 +2857,7 @@ export default function Home() {
                     <input
                       id="edit_user_adhesion"
                       type="date"
+                      className={styles.textInput}
                       value={editingUserForm.empr_date_adhesion || ''}
                       onChange={(e) => setEditingUserForm(prev => ({ ...prev, empr_date_adhesion: e.target.value }))}
                     />
@@ -2852,6 +2867,7 @@ export default function Home() {
                     <input
                       id="edit_user_expiration"
                       type="date"
+                      className={styles.textInput}
                       value={editingUserForm.empr_date_expiration || ''}
                       onChange={(e) => setEditingUserForm(prev => ({ ...prev, empr_date_expiration: e.target.value }))}
                     />
