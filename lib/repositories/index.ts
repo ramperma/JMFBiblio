@@ -6,3 +6,5 @@ export { authRepository, RATE_LIMIT_CONFIG, getClientIp } from './authRepository
 export { statisticsRepository } from './statisticsRepository'
 export { backupRepository } from './backupRepository'
 export { groupRepository } from './groupRepository'
+export { basketRepository } from './basketRepository'
+

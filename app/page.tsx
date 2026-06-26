@@ -22,6 +22,13 @@ interface User {
   empr_tel1?: string
   is_active?: boolean
   user_groups?: string
+  empr_sexe?: number
+  empr_year?: number
+  empr_ville?: string
+  empr_date_adhesion?: string | null
+  empr_date_expiration?: string | null
+  empr_categ?: number
+  groupId?: number
 }
 
 interface Loan {
@@ -50,6 +57,11 @@ interface BookCopy {
   expl_cb: string
   expl_statut: string
   expl_notice?: number
+}
+
+interface Author {
+  author_id: number
+  author_name: string
 }
 
 interface PaginationMeta {
@@ -99,7 +111,7 @@ interface TopBorrower {
   active_loan_count: number
 }
 
-type Tab = 'books' | 'users' | 'groups' | 'loans' | 'config' | 'stats'
+type Tab = 'books' | 'users' | 'groups' | 'loans' | 'config' | 'stats' | 'reports'
 
 const initialPagination: PaginationMeta = {
   page: 1,
@@ -110,6 +122,7 @@ const initialPagination: PaginationMeta = {
 
 export default function Home() {
   const explCbRef = useRef<HTMLInputElement>(null)
+  const quickReturnInputRef = useRef<HTMLInputElement>(null)
   const [session, setSession] = useState<SessionUser | null>(null)
   const [authLoading, setAuthLoading] = useState(true)
 
@@ -153,14 +166,51 @@ export default function Home() {
     groupId: ''
   })
 
-  const [newBook, setNewBook] = useState({ tit1: '', year: '', code: '' })
+  const [newBook, setNewBook] = useState({
+    tit1: '',
+    year: '',
+    code: '', // ISBN
+    author_name: '',
+    author_id: '',
+    ed_name: '',
+    ed_id: '',
+    npages: '',
+    code_langue: 'spa'
+  })
+
+  const [newCopy, setNewCopy] = useState({
+    expl_cb: '',
+    expl_cote: '',
+    expl_section: '',
+    expl_codestat: ''
+  })
+
+  const [authorResults, setAuthorResults] = useState<Author[]>([])
+  const [publisherResults, setPublisherResults] = useState<{ ed_id: number; ed_name: string }[]>([])
+  const [sections, setSections] = useState<{ idsection: number; section_libelle: string }[]>([])
+  const [codeStats, setCodeStats] = useState<{ idcode: number; codestat_libelle: string }[]>([])
+  const [catalogingStep, setCatalogingStep] = useState(1)
+
   const [newUser, setNewUser] = useState({
     empr_nom: '',
     empr_prenom: '',
     empr_cb: '',
     empr_mail: '',
-    empr_tel1: ''
+    empr_tel1: '',
+    empr_sexe: 0,
+    empr_year: new Date().getFullYear(),
+    empr_ville: 'Valencia',
+    empr_date_adhesion: new Date().toISOString().split('T')[0],
+    empr_date_expiration: (() => {
+      const d = new Date()
+      d.setFullYear(d.getFullYear() + 1)
+      return d.toISOString().split('T')[0]
+    })(),
+    empr_categ: 6,
+    groupId: ''
   })
+
+  const [userCategories, setUserCategories] = useState<{ id_categ_empr: number; libelle: string }[]>([])
 
   // Nuevo préstamo
   const [newLoan, setNewLoan] = useState({ expl_cb: '', id_empr: '' })
@@ -170,6 +220,8 @@ export default function Home() {
   const [loanCopyResults, setLoanCopyResults] = useState<AvailableCopy[]>([])
   const [loanFeedback, setLoanFeedback] = useState('')
   const [maxRenewals, setMaxRenewals] = useState(2)
+  const [quickReturnBarcode, setQuickReturnBarcode] = useState('')
+  const [quickReturnFeedback, setQuickReturnFeedback] = useState('')
 
   const [groups, setGroups] = useState<{ id_groupe: number; libelle_groupe: string }[]>([])
   const [userGroupFilter, setUserGroupFilter] = useState('')
@@ -211,6 +263,16 @@ export default function Home() {
   const [createdBookBarcode, setCreatedBookBarcode] = useState('')
   const [showCreatedBookAlert, setShowCreatedBookAlert] = useState(false)
 
+  // Informes / Reports states
+  const [reportsOverdueLoans, setReportsOverdueLoans] = useState<any[]>([])
+  const [reportsActiveLoans, setReportsActiveLoans] = useState<any[]>([])
+  const [reportsBasketItems, setReportsBasketItems] = useState<any[]>([])
+  const [reportsSelectedGroupsOverdue, setReportsSelectedGroupsOverdue] = useState<string[]>([])
+  const [reportsSelectedGroupsActive, setReportsSelectedGroupsActive] = useState<string[]>([])
+  const [barcodeStart, setBarcodeStart] = useState('')
+  const [barcodeCount, setBarcodeCount] = useState('24')
+  const [reportsLoadingState, setReportsLoadingState] = useState(false)
+
   const [showCopiesModal, setShowCopiesModal] = useState(false)
   const [copiesModalBook, setCopiesModalBook] = useState<Book | null>(null)
   const [copiesList, setCopiesList] = useState<BookCopy[]>([])
@@ -223,7 +285,14 @@ export default function Home() {
     empr_prenom: '',
     empr_cb: '',
     empr_mail: '',
-    empr_tel1: ''
+    empr_tel1: '',
+    empr_sexe: 0,
+    empr_year: 0,
+    empr_ville: '',
+    empr_date_adhesion: '',
+    empr_date_expiration: '',
+    empr_categ: 6,
+    groupId: ''
   })
 
   const [stats, setStats] = useState<Statistics | null>(null)
@@ -250,18 +319,31 @@ export default function Home() {
 
   useEffect(() => {
     if (!session) return
-    const fetchGroups = async () => {
+    const fetchGroupsAndCategoriesAndMetadata = async () => {
       try {
-        const res = await fetch('/api/groups')
-        const data = await res.json()
-        if (data.success) {
-          setGroups(data.data || [])
+        const [gRes, cRes, mRes] = await Promise.all([
+          fetch('/api/groups'),
+          fetch('/api/users/categories'),
+          fetch('/api/books/metadata')
+        ])
+        const gData = await gRes.json()
+        if (gData.success) {
+          setGroups(gData.data || [])
+        }
+        const cData = await cRes.json()
+        if (cData.success) {
+          setUserCategories(cData.data || [])
+        }
+        const mData = await mRes.json()
+        if (mData.success) {
+          setSections(mData.data.sections || [])
+          setCodeStats(mData.data.codeStats || [])
         }
       } catch (error) {
-        console.error('Error loading groups:', error)
+        console.error('Error loading groups, categories or copy metadata:', error)
       }
     }
-    fetchGroups()
+    fetchGroupsAndCategoriesAndMetadata()
   }, [session])
 
   useEffect(() => {
@@ -285,6 +367,37 @@ export default function Home() {
     }
     loadGroupUsers()
   }, [session, activeTab, selectedGroup, refreshKey])
+
+  useEffect(() => {
+    if (!session || activeTab !== 'reports') return
+    const loadReportsData = async () => {
+      setReportsLoadingState(true)
+      try {
+        const [delaysRes, loansRes, basketRes] = await Promise.all([
+          fetch('/api/reports/delays'),
+          fetch('/api/reports/loans'),
+          fetch('/api/baskets/tejuelos')
+        ])
+        const delaysData = await delaysRes.json()
+        if (delaysData.success) {
+          setReportsOverdueLoans(delaysData.data || [])
+        }
+        const loansData = await loansRes.json()
+        if (loansData.success) {
+          setReportsActiveLoans(loansData.data || [])
+        }
+        const basketData = await basketRes.json()
+        if (basketData.success) {
+          setReportsBasketItems(basketData.data || [])
+        }
+      } catch (err) {
+        console.error('Error loading reports data:', err)
+      } finally {
+        setReportsLoadingState(false)
+      }
+    }
+    loadReportsData()
+  }, [session, activeTab, refreshKey])
 
   useEffect(() => {
     if (!session || activeTab !== 'books') return
@@ -733,6 +846,34 @@ export default function Home() {
     setLoansPagination(prev => ({ ...prev, page: 1 }))
   }
 
+  const handleQuickReturn = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setQuickReturnFeedback('')
+    const barcode = quickReturnBarcode.trim()
+    if (!barcode) return
+
+    try {
+      const res = await fetch('/api/loans/return', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ expl_cb: barcode })
+      })
+      const data = await res.json()
+      if (data.success) {
+        setQuickReturnFeedback(`Devuelto: Ejemplar #${data.data.explId} devuelto correctamente.`)
+        setQuickReturnBarcode('')
+        setRefreshKey(k => k + 1)
+        setTimeout(() => {
+          quickReturnInputRef.current?.focus()
+        }, 50)
+      } else {
+        setQuickReturnFeedback(`Error: ${data.error || 'No se pudo registrar la devolución'}`)
+      }
+    } catch {
+      setQuickReturnFeedback('Error de red al procesar devolución')
+    }
+  }
+
   const doReturnLoan = async (explId: number) => {
     if (!confirm('Confirmar devolucion del ejemplar?')) return
     const res = await fetch(`/api/loans/${explId}`, {
@@ -764,16 +905,167 @@ export default function Home() {
     setRefreshKey(k => k + 1)
   }
 
+  const searchAuthors = async (q: string) => {
+    setNewBook(prev => ({ ...prev, author_name: q }))
+    if (!q.trim()) {
+      setAuthorResults([])
+      return
+    }
+    try {
+      const res = await fetch(`/api/books/authors?q=${encodeURIComponent(q)}`)
+      const data = await res.json()
+      if (data.success) {
+        setAuthorResults(data.data || [])
+      }
+    } catch (err) {
+      console.error(err)
+    }
+  }
+
+  const addAuthorInline = async () => {
+    const name = newBook.author_name.trim()
+    if (!name) return
+    try {
+      const res = await fetch('/api/books/authors', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name })
+      })
+      const data = await res.json()
+      if (data.success && data.data) {
+        setNewBook(prev => ({ ...prev, author_id: String(data.data.author_id) }))
+        alert('Autor creado y seleccionado con éxito')
+        setAuthorResults([])
+      } else {
+        alert(data.error || 'Error al crear autor')
+      }
+    } catch (err) {
+      console.error(err)
+      alert('Error de red al crear autor')
+    }
+  }
+
+  const searchPublishers = async (q: string) => {
+    setNewBook(prev => ({ ...prev, ed_name: q }))
+    if (!q.trim()) {
+      setPublisherResults([])
+      return
+    }
+    try {
+      const res = await fetch(`/api/books/publishers?q=${encodeURIComponent(q)}`)
+      const data = await res.json()
+      if (data.success) {
+        setPublisherResults(data.data || [])
+      }
+    } catch (err) {
+      console.error(err)
+    }
+  }
+
+  const addPublisherInline = async () => {
+    const name = newBook.ed_name.trim()
+    if (!name) return
+    try {
+      const res = await fetch('/api/books/publishers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name })
+      })
+      const data = await res.json()
+      if (data.success && data.data) {
+        setNewBook(prev => ({ ...prev, ed_id: String(data.data.ed_id) }))
+        alert('Editorial creada y seleccionada con éxito')
+        setPublisherResults([])
+      } else {
+        alert(data.error || 'Error al crear editorial')
+      }
+    } catch (err) {
+      console.error(err)
+      alert('Error de red al crear editorial')
+    }
+  }
+
+  const triggerCoteCalculation = (bookState: typeof newBook, authorName: string, sectionId: string) => {
+    let shelfOrLang = 'C-7'
+    if (bookState.code_langue === 'eng') {
+      shelfOrLang = 'ING'
+    } else if (bookState.code_langue === 'cat') {
+      shelfOrLang = 'VAL'
+    }
+
+    let course = ''
+    const secNum = Number(sectionId)
+    if (secNum === 11 || secNum === 12 || secNum === 26) {
+      course = '1y2PRI'
+    } else if (secNum === 13 || secNum === 25) {
+      course = '3y4 ESO'
+    }
+
+    let authorInitials = ''
+    if (authorName) {
+      const cleanAuthor = authorName.replace(/[^a-zA-ZáéíóúÁÉÍÓÚñÑ]/g, '').trim()
+      authorInitials = cleanAuthor.substring(0, 3).toUpperCase()
+    }
+
+    let abbrevTitle = ''
+    if (bookState.tit1) {
+      const cleanTitle = bookState.tit1.replace(/[^a-zA-ZáéíóúÁÉÍÓÚñÑ\s]/g, '').trim()
+      abbrevTitle = cleanTitle.substring(0, 7).toLowerCase()
+    }
+
+    const calculated = `${shelfOrLang} ${course} ${authorInitials} ${abbrevTitle}`.replace(/\s+/g, ' ').trim()
+    setNewCopy(prev => ({ ...prev, expl_cote: calculated }))
+  }
+
   const createBook = async (e: React.FormEvent) => {
     e.preventDefault()
-    const res = await fetch('/api/books', {
+
+    if (catalogingStep === 1) {
+      setCatalogingStep(2)
+      // fetch next barcode sequentially
+      try {
+        const res = await fetch('/api/books/copies?next=1')
+        const data = await res.json()
+        if (data.success && data.data && data.data.nextBarcode) {
+          setNewCopy(prev => ({ ...prev, expl_cb: data.data.nextBarcode }))
+        }
+      } catch (err) {
+        console.error('Error fetching next barcode:', err)
+      }
+      // Calculate cote
+      triggerCoteCalculation(
+        newBook,
+        newBook.author_name,
+        newCopy.expl_section || (sections[0]?.idsection ? String(sections[0].idsection) : '')
+      )
+      return
+    }
+
+    const res = await fetch('/api/books/advanced', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(newBook)
+      body: JSON.stringify({
+        book: {
+          tit1: newBook.tit1,
+          author_id: newBook.author_id ? Number(newBook.author_id) : undefined,
+          ed1_id: newBook.ed_id ? Number(newBook.ed_id) : undefined,
+          year: newBook.year || undefined,
+          npages: newBook.npages || undefined,
+          code_langue: newBook.code_langue,
+          code: newBook.code
+        },
+        copy: {
+          expl_cb: newCopy.expl_cb,
+          expl_cote: newCopy.expl_cote,
+          expl_section: newCopy.expl_section ? Number(newCopy.expl_section) : (sections[0]?.idsection || 13),
+          expl_codestat: newCopy.expl_codestat ? Number(newCopy.expl_codestat) : (codeStats[0]?.idcode || 11)
+        }
+      })
     })
+
     const data = await res.json()
     if (!res.ok || !data.success) {
-      alert(data.error || 'No se pudo crear libro')
+      alert(data.error || 'No se pudo crear el libro')
       return
     }
 
@@ -784,8 +1076,27 @@ export default function Home() {
       setShowCreatedBookAlert(true)
     }
 
-    setNewBook({ tit1: '', year: '', code: '' })
+    // Reset forms
+    setNewBook({
+      tit1: '',
+      year: '',
+      code: '',
+      author_name: '',
+      author_id: '',
+      ed_name: '',
+      ed_id: '',
+      npages: '',
+      code_langue: 'spa'
+    })
+    setNewCopy({
+      expl_cb: '',
+      expl_cote: '',
+      expl_section: sections[0]?.idsection ? String(sections[0].idsection) : '',
+      expl_codestat: codeStats[0]?.idcode ? String(codeStats[0].idcode) : ''
+    })
+    setCatalogingStep(1)
     setBooksPagination(prev => ({ ...prev, page: 1 }))
+    setRefreshKey(k => k + 1)
   }
 
   const handleViewCopies = async (book: Book) => {
@@ -820,7 +1131,24 @@ export default function Home() {
       alert(data.error || 'No se pudo crear usuario')
       return
     }
-    setNewUser({ empr_nom: '', empr_prenom: '', empr_cb: '', empr_mail: '', empr_tel1: '' })
+    setNewUser({
+      empr_nom: '',
+      empr_prenom: '',
+      empr_cb: '',
+      empr_mail: '',
+      empr_tel1: '',
+      empr_sexe: 0,
+      empr_year: new Date().getFullYear(),
+      empr_ville: 'Valencia',
+      empr_date_adhesion: new Date().toISOString().split('T')[0],
+      empr_date_expiration: (() => {
+        const d = new Date()
+        d.setFullYear(d.getFullYear() + 1)
+        return d.toISOString().split('T')[0]
+      })(),
+      empr_categ: 6,
+      groupId: ''
+    })
     setUsersPagination(prev => ({ ...prev, page: 1 }))
   }
 
@@ -878,7 +1206,14 @@ export default function Home() {
       empr_prenom: user.empr_prenom || '',
       empr_cb: user.empr_cb || '',
       empr_mail: user.empr_mail || '',
-      empr_tel1: user.empr_tel1 || ''
+      empr_tel1: user.empr_tel1 || '',
+      empr_sexe: user.empr_sexe || 0,
+      empr_year: user.empr_year || 0,
+      empr_ville: user.empr_ville || 'Valencia',
+      empr_date_adhesion: user.empr_date_adhesion || '',
+      empr_date_expiration: user.empr_date_expiration || '',
+      empr_categ: user.empr_categ || 6,
+      groupId: user.groupId !== undefined ? String(user.groupId) : ''
     })
   }
 
@@ -1018,6 +1353,9 @@ export default function Home() {
         <button className={`${styles.navButton} ${activeTab === 'stats' ? styles.active : ''}`} onClick={() => setActiveTab('stats')}>
           Estadisticas
         </button>
+        <button className={`${styles.navButton} ${activeTab === 'reports' ? styles.active : ''}`} onClick={() => setActiveTab('reports')}>
+          Informes
+        </button>
         <button className={styles.logoutButton} onClick={logout}>Salir</button>
       </nav>
 
@@ -1026,12 +1364,154 @@ export default function Home() {
           <section>
             <h2>Libros</h2>
 
-            <form className={styles.inlineForm} onSubmit={createBook}>
-              <input placeholder="Titulo" value={newBook.tit1} onChange={(e) => setNewBook(prev => ({ ...prev, tit1: e.target.value }))} required />
-              <input placeholder="Ano" value={newBook.year} onChange={(e) => setNewBook(prev => ({ ...prev, year: e.target.value }))} />
-              <input placeholder="Codigo" value={newBook.code} onChange={(e) => setNewBook(prev => ({ ...prev, code: e.target.value }))} required />
-              <button type="submit">+ Libro</button>
-            </form>
+            {catalogingStep === 1 ? (
+              <form className={styles.formGrid} onSubmit={createBook} style={{ marginBottom: '2rem' }}>
+                <div className={styles.formGridTitle}>Catalogación Avanzada - Paso 1: Ficha del Libro</div>
+                
+                <div className={styles.formGridGroup}>
+                  <label>Título propio *</label>
+                  <input placeholder="Título del libro" value={newBook.tit1} onChange={(e) => setNewBook(prev => ({ ...prev, tit1: e.target.value }))} required />
+                </div>
+                
+                <div className={styles.formGridGroup}>
+                  <label>ISBN / Código *</label>
+                  <input placeholder="ISBN o Código" value={newBook.code} onChange={(e) => setNewBook(prev => ({ ...prev, code: e.target.value }))} required />
+                </div>
+                
+                <div className={styles.formGridGroup}>
+                  <label>Año de edición</label>
+                  <input placeholder="Año (ej: 2012)" value={newBook.year} onChange={(e) => setNewBook(prev => ({ ...prev, year: e.target.value }))} />
+                </div>
+
+                <div className={styles.formGridGroup} style={{ position: 'relative' }}>
+                  <label>Autor principal</label>
+                  <div className={styles.searchInline}>
+                    <input
+                      placeholder="Buscar o escribir autor..."
+                      value={newBook.author_name}
+                      onChange={(e) => searchAuthors(e.target.value)}
+                    />
+                    <button type="button" onClick={addAuthorInline}>+ Crear</button>
+                  </div>
+                  {authorResults.length > 0 && (
+                    <ul className={styles.searchResultList} style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 10, background: 'white', border: '1px solid var(--border)', maxHeight: '150px', overflowY: 'auto' }}>
+                      {authorResults.map(a => (
+                        <li key={a.author_id} onClick={() => {
+                          setNewBook(prev => ({ ...prev, author_name: a.author_name, author_id: String(a.author_id) }))
+                          setAuthorResults([])
+                        }} style={{ padding: '0.4rem 0.8rem', cursor: 'pointer' }}>
+                          {a.author_name}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
+                <div className={styles.formGridGroup} style={{ position: 'relative' }}>
+                  <label>Editorial</label>
+                  <div className={styles.searchInline}>
+                    <input
+                      placeholder="Buscar o escribir editorial..."
+                      value={newBook.ed_name}
+                      onChange={(e) => searchPublishers(e.target.value)}
+                    />
+                    <button type="button" onClick={addPublisherInline}>+ Crear</button>
+                  </div>
+                  {publisherResults.length > 0 && (
+                    <ul className={styles.searchResultList} style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 10, background: 'white', border: '1px solid var(--border)', maxHeight: '150px', overflowY: 'auto' }}>
+                      {publisherResults.map(p => (
+                        <li key={p.ed_id} onClick={() => {
+                          setNewBook(prev => ({ ...prev, ed_name: p.ed_name, ed_id: String(p.ed_id) }))
+                          setPublisherResults([])
+                        }} style={{ padding: '0.4rem 0.8rem', cursor: 'pointer' }}>
+                          {p.ed_name}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
+                <div className={styles.formGridGroup}>
+                  <label>Colación (Páginas)</label>
+                  <input placeholder="Número de páginas" value={newBook.npages} onChange={(e) => setNewBook(prev => ({ ...prev, npages: e.target.value }))} />
+                </div>
+
+                <div className={styles.formGridGroup}>
+                  <label>Idioma</label>
+                  <select value={newBook.code_langue} onChange={(e) => setNewBook(prev => ({ ...prev, code_langue: e.target.value }))}>
+                    <option value="spa">Español (spa)</option>
+                    <option value="cat">Catalán / Valenciano (cat)</option>
+                    <option value="eng">Inglés (eng)</option>
+                    <option value="fra">Francés (fra)</option>
+                  </select>
+                </div>
+
+                <div className={styles.formGridActions}>
+                  <button type="submit" className={styles.primaryButton}>Siguiente: Ficha del Ejemplar</button>
+                </div>
+              </form>
+            ) : (
+              <form className={styles.formGrid} onSubmit={createBook} style={{ marginBottom: '2rem' }}>
+                <div className={styles.formGridTitle}>Catalogación Avanzada - Paso 2: Ficha del Ejemplar</div>
+                
+                <div className={styles.formGridGroup}>
+                  <label>Código de barras del colegio *</label>
+                  <input
+                    placeholder="Código del ejemplar"
+                    value={newCopy.expl_cb}
+                    onChange={(e) => setNewCopy(prev => ({ ...prev, expl_cb: e.target.value }))}
+                    required
+                  />
+                </div>
+
+                <div className={styles.formGridGroup}>
+                  <label>Sección *</label>
+                  <select
+                    value={newCopy.expl_section}
+                    onChange={(e) => {
+                      const secId = e.target.value
+                      setNewCopy(prev => ({ ...prev, expl_section: secId }))
+                      triggerCoteCalculation(newBook, newBook.author_name, secId)
+                    }}
+                    required
+                  >
+                    <option value="">Selecciona sección...</option>
+                    {sections.map(s => (
+                      <option key={s.idsection} value={s.idsection}>{s.section_libelle}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className={styles.formGridGroup}>
+                  <label>Código Estadístico *</label>
+                  <select
+                    value={newCopy.expl_codestat}
+                    onChange={(e) => setNewCopy(prev => ({ ...prev, expl_codestat: e.target.value }))}
+                    required
+                  >
+                    <option value="">Selecciona cód. estadístico...</option>
+                    {codeStats.map(c => (
+                      <option key={c.idcode} value={c.idcode}>{c.codestat_libelle}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className={styles.formGridGroup}>
+                  <label>Signatura calculada (Editable) *</label>
+                  <input
+                    placeholder="Signatura (ej: C-7 1y2PRI CER don qui)"
+                    value={newCopy.expl_cote}
+                    onChange={(e) => setNewCopy(prev => ({ ...prev, expl_cote: e.target.value }))}
+                    required
+                  />
+                </div>
+
+                <div className={styles.formGridActions} style={{ display: 'flex', gap: '1rem' }}>
+                  <button type="button" style={{ background: 'var(--border)', color: 'var(--text-main)', border: 'none', padding: '0.6rem 1.2rem', borderRadius: 'var(--radius)', cursor: 'pointer' }} onClick={() => setCatalogingStep(1)}>Atrás</button>
+                  <button type="submit" className={styles.primaryButton}>Guardar y Añadir a Tejuelos</button>
+                </div>
+              </form>
+            )}
 
             {showCreatedBookAlert && (
               <div className={styles.successText} style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginBottom: '1.5rem', padding: '1rem', background: '#ecfdf5', borderRadius: 'var(--radius)', border: '1px solid #a7f3d0' }}>
@@ -1135,13 +1615,74 @@ export default function Home() {
           <section>
             <h2>Usuarios</h2>
 
-            <form className={styles.inlineForm} onSubmit={createUser}>
-              <input placeholder="Apellido" value={newUser.empr_nom} onChange={(e) => setNewUser(prev => ({ ...prev, empr_nom: e.target.value }))} required />
-              <input placeholder="Nombre" value={newUser.empr_prenom} onChange={(e) => setNewUser(prev => ({ ...prev, empr_prenom: e.target.value }))} required />
-              <input placeholder="Carne" value={newUser.empr_cb} onChange={(e) => setNewUser(prev => ({ ...prev, empr_cb: e.target.value }))} />
-              <input placeholder="Email" value={newUser.empr_mail} onChange={(e) => setNewUser(prev => ({ ...prev, empr_mail: e.target.value }))} />
-              <input placeholder="Telefono" value={newUser.empr_tel1} onChange={(e) => setNewUser(prev => ({ ...prev, empr_tel1: e.target.value }))} />
-              <button type="submit">+ Usuario</button>
+            <form className={styles.formGrid} onSubmit={createUser}>
+              <div className={styles.formGridTitle}>Nuevo Usuario (Ficha Personal)</div>
+              
+              <div className={styles.formGridGroup}>
+                <label>Apellido *</label>
+                <input placeholder="Apellido" value={newUser.empr_nom} onChange={(e) => setNewUser(prev => ({ ...prev, empr_nom: e.target.value }))} required />
+              </div>
+              <div className={styles.formGridGroup}>
+                <label>Nombre *</label>
+                <input placeholder="Nombre" value={newUser.empr_prenom} onChange={(e) => setNewUser(prev => ({ ...prev, empr_prenom: e.target.value }))} required />
+              </div>
+              <div className={styles.formGridGroup}>
+                <label>Carné / Código de Barras</label>
+                <input placeholder="Carne" value={newUser.empr_cb} onChange={(e) => setNewUser(prev => ({ ...prev, empr_cb: e.target.value }))} />
+              </div>
+              <div className={styles.formGridGroup}>
+                <label>Sexo</label>
+                <select value={newUser.empr_sexe} onChange={(e) => setNewUser(prev => ({ ...prev, empr_sexe: parseInt(e.target.value, 10) }))}>
+                  <option value={0}>No especificado</option>
+                  <option value={1}>Hombre</option>
+                  <option value={2}>Mujer</option>
+                </select>
+              </div>
+              <div className={styles.formGridGroup}>
+                <label>Año de Nacimiento</label>
+                <input type="number" min={1900} max={new Date().getFullYear()} value={newUser.empr_year} onChange={(e) => setNewUser(prev => ({ ...prev, empr_year: parseInt(e.target.value, 10) || 0 }))} />
+              </div>
+              <div className={styles.formGridGroup}>
+                <label>Población</label>
+                <input placeholder="Poblacion" value={newUser.empr_ville} onChange={(e) => setNewUser(prev => ({ ...prev, empr_ville: e.target.value }))} />
+              </div>
+              <div className={styles.formGridGroup}>
+                <label>Categoría</label>
+                <select value={newUser.empr_categ} onChange={(e) => setNewUser(prev => ({ ...prev, empr_categ: parseInt(e.target.value, 10) }))}>
+                  {userCategories.map(c => (
+                    <option key={c.id_categ_empr} value={c.id_categ_empr}>{c.libelle}</option>
+                  ))}
+                </select>
+              </div>
+              <div className={styles.formGridGroup}>
+                <label>Añadir al Grupo / Curso</label>
+                <select value={newUser.groupId} onChange={(e) => setNewUser(prev => ({ ...prev, groupId: e.target.value }))}>
+                  <option value="">Ninguno</option>
+                  {groups.map(g => (
+                    <option key={g.id_groupe} value={g.id_groupe}>{g.libelle_groupe}</option>
+                  ))}
+                </select>
+              </div>
+              <div className={styles.formGridGroup}>
+                <label>Email</label>
+                <input type="email" placeholder="Email" value={newUser.empr_mail} onChange={(e) => setNewUser(prev => ({ ...prev, empr_mail: e.target.value }))} />
+              </div>
+              <div className={styles.formGridGroup}>
+                <label>Teléfono</label>
+                <input placeholder="Telefono" value={newUser.empr_tel1} onChange={(e) => setNewUser(prev => ({ ...prev, empr_tel1: e.target.value }))} />
+              </div>
+              <div className={styles.formGridGroup}>
+                <label>Válido Desde</label>
+                <input type="date" value={newUser.empr_date_adhesion} onChange={(e) => setNewUser(prev => ({ ...prev, empr_date_adhesion: e.target.value }))} />
+              </div>
+              <div className={styles.formGridGroup}>
+                <label>Válido Hasta</label>
+                <input type="date" value={newUser.empr_date_expiration} onChange={(e) => setNewUser(prev => ({ ...prev, empr_date_expiration: e.target.value }))} />
+              </div>
+
+              <div className={styles.formGridActions}>
+                <button type="submit" className={styles.primaryButton}>+ Registrar Usuario</button>
+              </div>
             </form>
 
             <div className={styles.filtersRow}>
@@ -1213,6 +1754,7 @@ export default function Home() {
                       <td>
                         <div className={styles.actionsRow}>
                           <button onClick={() => editUser(user)}>Editar</button>
+                          <button onClick={() => window.open(`/api/users/card?id=${user.id_empr}`, '_blank')}>Carnet</button>
                           <button
                             className={user.is_active ? styles.dangerButton : ''}
                             onClick={async () => {
@@ -1368,6 +1910,77 @@ export default function Home() {
                   </>
                 )}
               </div>
+
+              <div className={styles.configCard} style={{ gridColumn: 'span 2' }}>
+                <h3>Promoción Masiva (Paso de Cursos)</h3>
+                <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
+                  Esta utilidad permite traspasar masivamente todos los alumnos de un grupo a otro (por ejemplo, de &quot;ESO 3º&quot; a &quot;ESO 4º&quot;).
+                </p>
+                <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                    <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Grupo Origen</label>
+                    <select id="promoFromGroup" defaultValue="" style={{ padding: '0.4rem', border: '1px solid var(--border)', borderRadius: 'var(--radius)' }}>
+                      <option value="">Seleccionar...</option>
+                      {groups.map(g => (
+                        <option key={g.id_groupe} value={g.id_groupe}>{g.libelle_groupe}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div style={{ fontSize: '1.2rem', alignSelf: 'flex-end', paddingBottom: '0.4rem' }}>&rarr;</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                    <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Grupo Destino</label>
+                    <select id="promoToGroup" defaultValue="" style={{ padding: '0.4rem', border: '1px solid var(--border)', borderRadius: 'var(--radius)' }}>
+                      <option value="">Seleccionar...</option>
+                      {groups.map(g => (
+                        <option key={g.id_groupe} value={g.id_groupe}>{g.libelle_groupe}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <button
+                    type="button"
+                    style={{ alignSelf: 'flex-end', background: 'var(--primary)', color: 'white', border: 'none', padding: '0.6rem 1.2rem', borderRadius: 'var(--radius)', cursor: 'pointer', fontWeight: 600 }}
+                    onClick={async () => {
+                      const fromSelect = document.getElementById('promoFromGroup') as HTMLSelectElement
+                      const toSelect = document.getElementById('promoToGroup') as HTMLSelectElement
+                      const fromId = fromSelect.value
+                      const toId = toSelect.value
+                      if (!fromId || !toId) {
+                        alert('Por favor, selecciona ambos grupos')
+                        return
+                      }
+                      if (fromId === toId) {
+                        alert('Los grupos de origen y destino deben ser distintos')
+                        return
+                      }
+                      const fromText = fromSelect.options[fromSelect.selectedIndex].text
+                      const toText = toSelect.options[toSelect.selectedIndex].text
+                      if (!confirm(`¿Seguro que deseas mover TODOS los alumnos de "${fromText}" a "${toText}"?`)) return
+                      
+                      try {
+                        const res = await fetch('/api/groups/promote', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ fromGroupId: fromId, toGroupId: toId })
+                        })
+                        const data = await res.json()
+                        if (data.success) {
+                          alert('Promoción realizada correctamente')
+                          fromSelect.value = ''
+                          toSelect.value = ''
+                          setRefreshKey(k => k + 1)
+                        } else {
+                          alert(data.error || 'Error al realizar la promoción')
+                        }
+                      } catch (err) {
+                        console.error(err)
+                        alert('Error de red al realizar la promoción')
+                      }
+                    }}
+                  >
+                    Promocionar Alumnos
+                  </button>
+                </div>
+              </div>
             </div>
           </section>
         )}
@@ -1474,6 +2087,33 @@ export default function Home() {
               {loanFeedback && (
                 <p className={loanFeedback.startsWith('Error') ? styles.errorText : styles.successText}>
                   {loanFeedback}
+                </p>
+              )}
+            </details>
+
+            {/* Devolución rápida */}
+            <details className={styles.newLoanPanel}>
+              <summary>+ Devolución rápida (Escanear libro)</summary>
+              <form onSubmit={handleQuickReturn} className={styles.newLoanForm} style={{ borderTop: 'none', marginTop: '0.5rem', paddingTop: '0.5rem' }}>
+                <div className={styles.loanFormFields}>
+                  <div className={styles.loanSearchBlock} style={{ maxWidth: '400px' }}>
+                    <label>Código de barras del ejemplar</label>
+                    <input
+                      ref={quickReturnInputRef}
+                      placeholder="Escanear o introducir código de barras..."
+                      value={quickReturnBarcode}
+                      onChange={(e) => setQuickReturnBarcode(e.target.value)}
+                      required
+                    />
+                  </div>
+                </div>
+                <div className={styles.loanFormActions}>
+                  <button type="submit" className={styles.primaryButton}>Registrar Devolución</button>
+                </div>
+              </form>
+              {quickReturnFeedback && (
+                <p className={quickReturnFeedback.startsWith('Error') ? styles.errorText : styles.successText}>
+                  {quickReturnFeedback}
                 </p>
               )}
             </details>
@@ -1721,6 +2361,324 @@ export default function Home() {
             )}
           </section>
         )}
+
+        {activeTab === 'reports' && (
+          <section>
+            <h2>Informes y Utilidades</h2>
+            {reportsLoadingState && (
+              <div className={styles.loadingFirst}>Cargando datos de informes...</div>
+            )}
+
+            <div className={styles.configGrid} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(450px, 1fr))', gap: '1.5rem', marginTop: '1rem' }}>
+              
+              {/* Card 1: Retrasos por Cursos */}
+              <div className={styles.configCard} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <div style={{ borderBottom: '1px solid var(--border)', paddingBottom: '0.5rem' }}>
+                  <h3 style={{ margin: 0, color: 'var(--primary)' }}>Avisos de Retraso</h3>
+                  <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Generación de cartas de retraso grupales</span>
+                </div>
+                
+                <div style={{ maxHeight: '180px', overflowY: 'auto', border: '1px solid var(--border)', padding: '0.5rem', borderRadius: 'var(--radius)' }}>
+                  {groups.map(g => {
+                    const isChecked = reportsSelectedGroupsOverdue.includes(String(g.id_groupe))
+                    const count = reportsOverdueLoans.filter(l => l.id_groupe === g.id_groupe).length
+                    return (
+                      <label key={g.id_groupe} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.3rem 0', cursor: 'pointer', fontSize: '0.9rem' }}>
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setReportsSelectedGroupsOverdue(prev => [...prev, String(g.id_groupe)])
+                            } else {
+                              setReportsSelectedGroupsOverdue(prev => prev.filter(id => id !== String(g.id_groupe)))
+                            }
+                          }}
+                        />
+                        <span>{g.libelle_groupe}</span>
+                        {count > 0 && <span style={{ marginLeft: 'auto', background: '#fee2e2', color: '#b91c1c', fontSize: '0.75rem', padding: '0.1rem 0.4rem', borderRadius: '10px', fontWeight: 'bold' }}>{count} retrasos</span>}
+                      </label>
+                    )
+                  })}
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.3rem 0', cursor: 'pointer', fontSize: '0.9rem' }}>
+                    <input
+                      type="checkbox"
+                      checked={reportsSelectedGroupsOverdue.includes('Sin Curso')}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setReportsSelectedGroupsOverdue(prev => [...prev, 'Sin Curso'])
+                        } else {
+                          setReportsSelectedGroupsOverdue(prev => prev.filter(id => id !== 'Sin Curso'))
+                        }
+                      }}
+                    />
+                    <span>Sin Curso / Profesores</span>
+                    {reportsOverdueLoans.filter(l => l.libelle_groupe === 'Sin Curso').length > 0 && (
+                      <span style={{ marginLeft: 'auto', background: '#fee2e2', color: '#b91c1c', fontSize: '0.75rem', padding: '0.1rem 0.4rem', borderRadius: '10px', fontWeight: 'bold' }}>
+                        {reportsOverdueLoans.filter(l => l.libelle_groupe === 'Sin Curso').length} retrasos
+                      </span>
+                    )}
+                  </label>
+                </div>
+
+                <div style={{ display: 'flex', gap: '1rem', marginTop: 'auto' }}>
+                  <button
+                    type="button"
+                    style={{ background: 'var(--border)', color: 'var(--text-main)', border: 'none', padding: '0.4rem 0.8rem', borderRadius: 'var(--radius)', fontSize: '0.85rem', cursor: 'pointer' }}
+                    onClick={() => setReportsSelectedGroupsOverdue(groups.map(g => String(g.id_groupe)).concat('Sin Curso'))}
+                  >
+                    Marcar todos
+                  </button>
+                  <button
+                    type="button"
+                    style={{ background: 'var(--border)', color: 'var(--text-main)', border: 'none', padding: '0.4rem 0.8rem', borderRadius: 'var(--radius)', fontSize: '0.85rem', cursor: 'pointer' }}
+                    onClick={() => setReportsSelectedGroupsOverdue([])}
+                  >
+                    Desmarcar todos
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  className={styles.primaryButton}
+                  style={{ width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '0.5rem' }}
+                  onClick={() => {
+                    if (reportsSelectedGroupsOverdue.length === 0) {
+                      alert('Por favor, selecciona al menos un grupo')
+                      return
+                    }
+                    window.open(`/api/reports/delays?format=pdf&groupIds=${reportsSelectedGroupsOverdue.join(',')}`, '_blank')
+                  }}
+                >
+                  📄 Imprimir Cartas de Retraso (PDF)
+                </button>
+              </div>
+
+              {/* Card 2: Préstamos Activos */}
+              <div className={styles.configCard} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <div style={{ borderBottom: '1px solid var(--border)', paddingBottom: '0.5rem' }}>
+                  <h3 style={{ margin: 0, color: 'var(--primary)' }}>Préstamos Activos</h3>
+                  <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Listados de libros prestados agrupados por curso</span>
+                </div>
+
+                <div style={{ maxHeight: '180px', overflowY: 'auto', border: '1px solid var(--border)', padding: '0.5rem', borderRadius: 'var(--radius)' }}>
+                  {groups.map(g => {
+                    const isChecked = reportsSelectedGroupsActive.includes(String(g.id_groupe))
+                    const count = reportsActiveLoans.filter(l => l.id_groupe === g.id_groupe).length
+                    return (
+                      <label key={g.id_groupe} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.3rem 0', cursor: 'pointer', fontSize: '0.9rem' }}>
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setReportsSelectedGroupsActive(prev => [...prev, String(g.id_groupe)])
+                            } else {
+                              setReportsSelectedGroupsActive(prev => prev.filter(id => id !== String(g.id_groupe)))
+                            }
+                          }}
+                        />
+                        <span>{g.libelle_groupe}</span>
+                        {count > 0 && <span style={{ marginLeft: 'auto', background: '#e0f2fe', color: '#0369a1', fontSize: '0.75rem', padding: '0.1rem 0.4rem', borderRadius: '10px', fontWeight: 'bold' }}>{count} préstamos</span>}
+                      </label>
+                    )
+                  })}
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.3rem 0', cursor: 'pointer', fontSize: '0.9rem' }}>
+                    <input
+                      type="checkbox"
+                      checked={reportsSelectedGroupsActive.includes('Sin Curso')}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setReportsSelectedGroupsActive(prev => [...prev, 'Sin Curso'])
+                        } else {
+                          setReportsSelectedGroupsActive(prev => prev.filter(id => id !== 'Sin Curso'))
+                        }
+                      }}
+                    />
+                    <span>Sin Curso / Profesores</span>
+                    {reportsActiveLoans.filter(l => l.libelle_groupe === 'Sin Curso').length > 0 && (
+                      <span style={{ marginLeft: 'auto', background: '#e0f2fe', color: '#0369a1', fontSize: '0.75rem', padding: '0.1rem 0.4rem', borderRadius: '10px', fontWeight: 'bold' }}>
+                        {reportsActiveLoans.filter(l => l.libelle_groupe === 'Sin Curso').length} préstamos
+                      </span>
+                    )}
+                  </label>
+                </div>
+
+                <div style={{ display: 'flex', gap: '1rem', marginTop: 'auto' }}>
+                  <button
+                    type="button"
+                    style={{ background: 'var(--border)', color: 'var(--text-main)', border: 'none', padding: '0.4rem 0.8rem', borderRadius: 'var(--radius)', fontSize: '0.85rem', cursor: 'pointer' }}
+                    onClick={() => setReportsSelectedGroupsActive(groups.map(g => String(g.id_groupe)).concat('Sin Curso'))}
+                  >
+                    Marcar todos
+                  </button>
+                  <button
+                    type="button"
+                    style={{ background: 'var(--border)', color: 'var(--text-main)', border: 'none', padding: '0.4rem 0.8rem', borderRadius: 'var(--radius)', fontSize: '0.85rem', cursor: 'pointer' }}
+                    onClick={() => setReportsSelectedGroupsActive([])}
+                  >
+                    Desmarcar todos
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  className={styles.primaryButton}
+                  style={{ width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '0.5rem' }}
+                  onClick={() => {
+                    if (reportsSelectedGroupsActive.length === 0) {
+                      alert('Por favor, selecciona al menos un grupo')
+                      return
+                    }
+                    window.open(`/api/reports/loans?format=pdf&groupIds=${reportsSelectedGroupsActive.join(',')}`, '_blank')
+                  }}
+                >
+                  📄 Imprimir Préstamos Activos (PDF)
+                </button>
+              </div>
+
+              {/* Card 3: Cesta de Tejuelos */}
+              <div className={styles.configCard} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <div style={{ borderBottom: '1px solid var(--border)', paddingBottom: '0.5rem' }}>
+                  <h3 style={{ margin: 0, color: 'var(--primary)' }}>Cesta de Tejuelos</h3>
+                  <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Etiquetas listas para imprimir (26mm x 25mm)</span>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span>Elementos en la cesta: <strong>{reportsBasketItems.length}</strong></span>
+                  {reportsBasketItems.length > 0 && (
+                    <button
+                      type="button"
+                      style={{ background: '#fee2e2', color: '#b91c1c', border: '1px solid #fca5a5', padding: '0.3rem 0.6rem', borderRadius: 'var(--radius)', fontSize: '0.8rem', cursor: 'pointer', fontWeight: 600 }}
+                      onClick={async () => {
+                        if (!confirm('¿Seguro que deseas vaciar la cesta de tejuelos?')) return
+                        try {
+                          const res = await fetch('/api/baskets/tejuelos', { method: 'DELETE' })
+                          const data = await res.json()
+                          if (data.success) {
+                            alert('Cesta vaciada con éxito')
+                            setRefreshKey(k => k + 1)
+                          }
+                        } catch (err) {
+                          console.error(err)
+                        }
+                      }}
+                    >
+                      Vaciar Cesta
+                    </button>
+                  )}
+                </div>
+
+                <div style={{ maxHeight: '180px', overflowY: 'auto', border: '1px solid var(--border)', padding: '0.5rem', borderRadius: 'var(--radius)', fontSize: '0.85rem' }}>
+                  {reportsBasketItems.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '1rem', color: 'var(--text-secondary)' }}>Cesta vacía. Agregue libros desde Catálogo.</div>
+                  ) : (
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                      <thead>
+                        <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
+                          <th style={{ padding: '0.2rem' }}>Libro</th>
+                          <th style={{ padding: '0.2rem' }}>Barra</th>
+                          <th style={{ padding: '0.2rem' }}>Signatura</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {reportsBasketItems.map(item => (
+                          <tr key={item.id} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                            <td style={{ padding: '0.2rem', maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.tit1}</td>
+                            <td style={{ padding: '0.2rem' }}>{item.expl_cb}</td>
+                            <td style={{ padding: '0.2rem', fontFamily: 'monospace' }}>{item.expl_cote}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  className={styles.primaryButton}
+                  style={{ width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '0.5rem', marginTop: 'auto' }}
+                  disabled={reportsBasketItems.length === 0}
+                  onClick={() => {
+                    window.open('/api/baskets/tejuelos/print', '_blank')
+                  }}
+                >
+                  🖨️ Imprimir Tejuelos en Cesta (PDF)
+                </button>
+              </div>
+
+              {/* Card 4: Generador de Códigos de Barra */}
+              <div className={styles.configCard} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <div style={{ borderBottom: '1px solid var(--border)', paddingBottom: '0.5rem' }}>
+                  <h3 style={{ margin: 0, color: 'var(--primary)' }}>Códigos de Barra Secuenciales</h3>
+                  <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Generador libre de etiquetas adhesivas en PDF</span>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                    <label style={{ fontSize: '0.85rem', fontWeight: 600 }}>Código de barra inicial *</label>
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      <input
+                        placeholder="Ej: 10001 o 010001"
+                        value={barcodeStart}
+                        onChange={(e) => setBarcodeStart(e.target.value)}
+                        style={{ flex: 1, padding: '0.4rem', border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'white', color: 'black' }}
+                      />
+                      <button
+                        type="button"
+                        style={{ padding: '0.4rem 0.8rem', fontSize: '0.8rem', background: 'var(--border)', border: 'none', borderRadius: 'var(--radius)', cursor: 'pointer' }}
+                        onClick={async () => {
+                          try {
+                            const res = await fetch('/api/books/copies?next=1')
+                            const data = await res.json()
+                            if (data.success && data.data && data.data.nextBarcode) {
+                              setBarcodeStart(data.data.nextBarcode)
+                            }
+                          } catch (err) {
+                            console.error(err)
+                          }
+                        }}
+                      >
+                        Siguiente libre
+                      </button>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                    <label style={{ fontSize: '0.85rem', fontWeight: 600 }}>Cantidad a generar *</label>
+                    <select
+                      value={barcodeCount}
+                      onChange={(e) => setBarcodeCount(e.target.value)}
+                      style={{ padding: '0.4rem', border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'white', color: 'black' }}
+                    >
+                      <option value="24">24 etiquetas (1 página)</option>
+                      <option value="48">48 etiquetas (2 páginas)</option>
+                      <option value="72">72 etiquetas (3 páginas)</option>
+                      <option value="96">96 etiquetas (4 páginas)</option>
+                      <option value="120">120 etiquetas (5 páginas)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  className={styles.primaryButton}
+                  style={{ width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '0.5rem', marginTop: 'auto' }}
+                  onClick={() => {
+                    if (!barcodeStart.trim()) {
+                      alert('Por favor, introduce el código de barra inicial')
+                      return
+                    }
+                    window.open(`/api/reports/barcodes?start=${barcodeStart.trim()}&count=${barcodeCount}`, '_blank')
+                  }}
+                >
+                  🖨️ Generar y Descargar PDF
+                </button>
+              </div>
+
+            </div>
+          </section>
+        )}
       </main>
 
       {editingBook && (
@@ -1779,7 +2737,7 @@ export default function Home() {
             </div>
             <form onSubmit={handleSaveUser}>
               <div className={styles.modalBody}>
-                <div className={styles.modalForm}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                   <div className={styles.modalFormGroup}>
                     <label htmlFor="edit_user_nom">Apellido</label>
                     <input
@@ -1807,6 +2765,63 @@ export default function Home() {
                     />
                   </div>
                   <div className={styles.modalFormGroup}>
+                    <label htmlFor="edit_user_sexe">Sexo</label>
+                    <select
+                      id="edit_user_sexe"
+                      style={{ padding: '0.65rem 0.75rem', border: '1px solid var(--border)', borderRadius: 'var(--radius)', font: 'inherit', fontSize: '0.9rem' }}
+                      value={editingUserForm.empr_sexe}
+                      onChange={(e) => setEditingUserForm(prev => ({ ...prev, empr_sexe: parseInt(e.target.value, 10) }))}
+                    >
+                      <option value={0}>No especificado</option>
+                      <option value={1}>Hombre</option>
+                      <option value={2}>Mujer</option>
+                    </select>
+                  </div>
+                  <div className={styles.modalFormGroup}>
+                    <label htmlFor="edit_user_year">Año de Nacimiento</label>
+                    <input
+                      id="edit_user_year"
+                      type="number"
+                      value={editingUserForm.empr_year}
+                      onChange={(e) => setEditingUserForm(prev => ({ ...prev, empr_year: parseInt(e.target.value, 10) || 0 }))}
+                    />
+                  </div>
+                  <div className={styles.modalFormGroup}>
+                    <label htmlFor="edit_user_ville">Población</label>
+                    <input
+                      id="edit_user_ville"
+                      value={editingUserForm.empr_ville}
+                      onChange={(e) => setEditingUserForm(prev => ({ ...prev, empr_ville: e.target.value }))}
+                    />
+                  </div>
+                  <div className={styles.modalFormGroup}>
+                    <label htmlFor="edit_user_categ">Categoría</label>
+                    <select
+                      id="edit_user_categ"
+                      style={{ padding: '0.65rem 0.75rem', border: '1px solid var(--border)', borderRadius: 'var(--radius)', font: 'inherit', fontSize: '0.9rem' }}
+                      value={editingUserForm.empr_categ}
+                      onChange={(e) => setEditingUserForm(prev => ({ ...prev, empr_categ: parseInt(e.target.value, 10) }))}
+                    >
+                      {userCategories.map(c => (
+                        <option key={c.id_categ_empr} value={c.id_categ_empr}>{c.libelle}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className={styles.modalFormGroup}>
+                    <label htmlFor="edit_user_group">Grupo / Curso</label>
+                    <select
+                      id="edit_user_group"
+                      style={{ padding: '0.65rem 0.75rem', border: '1px solid var(--border)', borderRadius: 'var(--radius)', font: 'inherit', fontSize: '0.9rem' }}
+                      value={editingUserForm.groupId}
+                      onChange={(e) => setEditingUserForm(prev => ({ ...prev, groupId: e.target.value }))}
+                    >
+                      <option value="">Ninguno</option>
+                      {groups.map(g => (
+                        <option key={g.id_groupe} value={g.id_groupe}>{g.libelle_groupe}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className={styles.modalFormGroup}>
                     <label htmlFor="edit_user_mail">Email</label>
                     <input
                       id="edit_user_mail"
@@ -1821,6 +2836,24 @@ export default function Home() {
                       id="edit_user_tel"
                       value={editingUserForm.empr_tel1}
                       onChange={(e) => setEditingUserForm(prev => ({ ...prev, empr_tel1: e.target.value }))}
+                    />
+                  </div>
+                  <div className={styles.modalFormGroup}>
+                    <label htmlFor="edit_user_adhesion">Válido Desde</label>
+                    <input
+                      id="edit_user_adhesion"
+                      type="date"
+                      value={editingUserForm.empr_date_adhesion || ''}
+                      onChange={(e) => setEditingUserForm(prev => ({ ...prev, empr_date_adhesion: e.target.value }))}
+                    />
+                  </div>
+                  <div className={styles.modalFormGroup}>
+                    <label htmlFor="edit_user_expiration">Válido Hasta</label>
+                    <input
+                      id="edit_user_expiration"
+                      type="date"
+                      value={editingUserForm.empr_date_expiration || ''}
+                      onChange={(e) => setEditingUserForm(prev => ({ ...prev, empr_date_expiration: e.target.value }))}
                     />
                   </div>
                 </div>

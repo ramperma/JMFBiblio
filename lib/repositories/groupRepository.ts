@@ -59,5 +59,17 @@ export const groupRepository = {
       'DELETE FROM empr_groupe WHERE empr_id = ? AND groupe_id = ?',
       [userId, groupId]
     )
+  },
+
+  async transferGroupMembers(fromGroupId: number, toGroupId: number): Promise<void> {
+    const conn = await getDbConnection()
+    await conn.query(
+      'UPDATE IGNORE empr_groupe SET groupe_id = ? WHERE groupe_id = ?',
+      [toGroupId, fromGroupId]
+    )
+    await conn.query(
+      'DELETE FROM empr_groupe WHERE groupe_id = ?',
+      [fromGroupId]
+    )
   }
 }

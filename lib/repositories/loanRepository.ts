@@ -194,6 +194,26 @@ export const loanRepository = {
     await conn.query('DELETE FROM pret WHERE pret_idexpl = ?', [explId])
   },
 
+  async returnLoanByBarcode(explCb: string) {
+    const conn = await getDbConnection()
+    const [exRows] = await conn.query(
+      'SELECT expl_id FROM exemplaires WHERE expl_cb = ?',
+      [explCb]
+    )
+    const exArr = exRows as RowDataPacket[]
+    if (exArr.length === 0) throw new Error('Código de barras de ejemplar no encontrado')
+    const explId = exArr[0].expl_id as number
+
+    const [pRows] = await conn.query(
+      'SELECT pret_idexpl FROM pret WHERE pret_idexpl = ?',
+      [explId]
+    )
+    if ((pRows as RowDataPacket[]).length === 0) throw new Error('Este ejemplar no tiene un préstamo activo')
+
+    await conn.query('DELETE FROM pret WHERE pret_idexpl = ?', [explId])
+    return { explId }
+  },
+
   async renewLoan(explId: number, maxLoanDays: number, maxRenewals: number) {
     const conn = await getDbConnection()
     const [pRows] = await conn.query(

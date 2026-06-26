@@ -70,22 +70,49 @@ export async function PATCH(
       )
     }
 
-    const { empr_nom, empr_prenom, empr_cb, empr_mail, empr_tel1, is_active } =
-      await request.json()
+    const {
+      empr_nom,
+      empr_prenom,
+      empr_cb,
+      empr_mail,
+      empr_tel1,
+      empr_sexe,
+      empr_year,
+      empr_ville,
+      empr_date_adhesion,
+      empr_date_expiration,
+      empr_categ,
+      groupId,
+      is_active
+    } = await request.json()
 
     if (
       empr_nom !== undefined ||
       empr_prenom !== undefined ||
       empr_cb !== undefined ||
       empr_mail !== undefined ||
-      empr_tel1 !== undefined
+      empr_tel1 !== undefined ||
+      empr_sexe !== undefined ||
+      empr_year !== undefined ||
+      empr_ville !== undefined ||
+      empr_date_adhesion !== undefined ||
+      empr_date_expiration !== undefined ||
+      empr_categ !== undefined ||
+      groupId !== undefined
     ) {
       await userRepository.updateUser(userId, {
-        empr_nom: empr_nom !== undefined ? String(empr_nom) : undefined,
-        empr_prenom: empr_prenom !== undefined ? String(empr_prenom) : undefined,
-        empr_cb: empr_cb !== undefined ? String(empr_cb) : undefined,
-        empr_mail: empr_mail !== undefined ? String(empr_mail) : undefined,
-        empr_tel1: empr_tel1 !== undefined ? String(empr_tel1) : undefined
+        empr_nom: empr_nom !== undefined ? String(empr_nom).trim() : undefined,
+        empr_prenom: empr_prenom !== undefined ? String(empr_prenom).trim() : undefined,
+        empr_cb: empr_cb !== undefined ? (empr_cb ? String(empr_cb).trim() : null) : undefined,
+        empr_mail: empr_mail !== undefined ? String(empr_mail).trim() : undefined,
+        empr_tel1: empr_tel1 !== undefined ? String(empr_tel1).trim() : undefined,
+        empr_sexe: empr_sexe !== undefined ? Number(empr_sexe) : undefined,
+        empr_year: empr_year !== undefined ? Number(empr_year) : undefined,
+        empr_ville: empr_ville !== undefined ? String(empr_ville).trim() : undefined,
+        empr_date_adhesion: empr_date_adhesion !== undefined ? (empr_date_adhesion ? String(empr_date_adhesion).trim() : null) : undefined,
+        empr_date_expiration: empr_date_expiration !== undefined ? (empr_date_expiration ? String(empr_date_expiration).trim() : null) : undefined,
+        empr_categ: empr_categ !== undefined ? Number(empr_categ) : undefined,
+        groupId: groupId !== undefined ? (groupId !== null ? Number(groupId) : null) : undefined
       })
     }
 

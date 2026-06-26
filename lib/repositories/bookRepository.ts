@@ -1,5 +1,5 @@
 import { getDbConnection } from '../db'
-import { Book, BookDetail } from '../types'
+import { Book, BookDetail, Author } from '../types'
 import { ResultSetHeader, RowDataPacket } from 'mysql2/promise'
 
 let stateInitialized = false
@@ -301,5 +301,179 @@ export const bookRepository = {
       notice_id: row.notice_id as number,
       tit1: row.tit1 as string
     }))
+  },
+
+  async searchAuthors(query: string): Promise<Author[]> {
+    const conn = await getDbConnection()
+    const [rows] = await conn.query(
+      `SELECT author_id, author_name FROM authors WHERE author_name LIKE ? ORDER BY author_name LIMIT 50`,
+      [`%${query}%`]
+    )
+    return (rows as RowDataPacket[]).map(row => ({
+      author_id: row.author_id,
+      author_name: row.author_name
+    }))
+  },
+
+  async createAuthor(name: string): Promise<number> {
+    const conn = await getDbConnection()
+    const [result] = await conn.query(
+      `INSERT INTO authors (author_type, author_name, author_rejete, author_date, author_see, author_web, author_comment, author_lieu, author_ville, author_pays, author_subdivision, author_numero)
+       VALUES ('70', ?, '', '', 0, '', '', '', '', '', '', '')`,
+      [name]
+    )
+    return (result as ResultSetHeader).insertId
+  },
+
+  async searchPublishers(query: string): Promise<{ ed_id: number; ed_name: string }[]> {
+    const conn = await getDbConnection()
+    const [rows] = await conn.query(
+      `SELECT ed_id, ed_name FROM publishers WHERE ed_name LIKE ? ORDER BY ed_name LIMIT 50`,
+      [`%${query}%`]
+    )
+    return (rows as RowDataPacket[]).map(row => ({
+      ed_id: row.ed_id,
+      ed_name: row.ed_name
+    }))
+  },
+
+  async createPublisher(name: string): Promise<number> {
+    const conn = await getDbConnection()
+    const [result] = await conn.query(
+      `INSERT INTO publishers (ed_name, ed_adr1, ed_adr2, ed_cp, ed_ville, ed_pays, ed_web, ed_comment)
+       VALUES (?, '', '', '', '', '', '', '')`,
+      [name]
+    )
+    return (result as ResultSetHeader).insertId
+  },
+
+  async getSections(): Promise<{ idsection: number; section_libelle: string }[]> {
+    const conn = await getDbConnection()
+    const [rows] = await conn.query(
+      `SELECT idsection, section_libelle FROM docs_section ORDER BY section_libelle`
+    )
+    return (rows as RowDataPacket[]).map(row => ({
+      idsection: row.idsection,
+      section_libelle: row.section_libelle
+    }))
+  },
+
+  async getCodeStats(): Promise<{ idcode: number; codestat_libelle: string }[]> {
+    const conn = await getDbConnection()
+    const [rows] = await conn.query(
+      `SELECT idcode, codestat_libelle FROM docs_codestat ORDER BY codestat_libelle`
+    )
+    return (rows as RowDataPacket[]).map(row => ({
+      idcode: row.idcode,
+      codestat_libelle: row.codestat_libelle
+    }))
+  },
+
+  async getStatuts(): Promise<{ idstatut: number; statut_libelle: string }[]> {
+    const conn = await getDbConnection()
+    const [rows] = await conn.query(
+      `SELECT idstatut, statut_libelle FROM docs_statut ORDER BY statut_libelle`
+    )
+    return (rows as RowDataPacket[]).map(row => ({
+      idstatut: row.idstatut,
+      statut_libelle: row.statut_libelle
+    }))
+  },
+
+  async createBookAdvanced(
+    book: {
+      tit1: string
+      author_id?: number
+      ed1_id?: number
+      year?: string
+      npages?: string
+      code_langue?: string
+      code?: string
+    },
+    copy: {
+      expl_cb: string
+      expl_cote: string
+      expl_section: number
+      expl_codestat: number
+    }
+  ): Promise<{ noticeId: number; explId: number }> {
+    const conn = await getDbConnection()
+
+    // 1. Insert notice
+    const [result] = await conn.query(
+      `INSERT INTO notices (
+        typdoc, tit1, year, code, npages, ed1_id, n_gen, n_contenu, n_resume, lien,
+        index_l, index_matieres, commentaire_gestion, signature, thumbnail_url,
+        indexation_lang, map_equinoxe, create_date
+      ) VALUES (?, ?, ?, ?, ?, ?, '', '', '', '', '', '', '', '', '', '', '', NOW())`,
+      [
+        'a',
+        book.tit1,
+        book.year || null,
+        book.code || '',
+        book.npages || null,
+        book.ed1_id || 0
+      ]
+    )
+    const noticeId = (result as ResultSetHeader).insertId
+
+    // 2. Link author
+    if (book.author_id) {
+      await conn.query(
+        `INSERT INTO responsability (responsability_author, responsability_notice, responsability_fonction, responsability_type, responsability_ordre)
+         VALUES (?, ?, '070', 0, 0)`,
+        [book.author_id, noticeId]
+      )
+    }
+
+    // 3. Link language
+    if (book.code_langue) {
+      await conn.query(
+        `INSERT INTO notices_langues (num_notice, type_langue, code_langue, ordre_langue)
+         VALUES (?, 0, ?, 0)`,
+        [noticeId, book.code_langue]
+      )
+    }
+
+    // 4. Insert copy/exemplar
+    const [copyResult] = await conn.query(
+      `INSERT INTO exemplaires (
+        expl_cb, expl_notice, expl_bulletin, expl_typdoc, expl_cote, expl_section,
+        expl_statut, expl_location, expl_codestat, expl_owner, expl_lastempr, create_date
+      ) VALUES (?, ?, 0, 1, ?, ?, 1, 1, ?, 2, 0, NOW())`,
+      [
+        copy.expl_cb,
+        noticeId,
+        copy.expl_cote,
+        copy.expl_section,
+        copy.expl_codestat
+      ]
+    )
+    const explId = (copyResult as ResultSetHeader).insertId
+
+    return { noticeId, explId }
+  },
+
+  async getNextBarcode(): Promise<string> {
+    const conn = await getDbConnection()
+    const [cbRows] = await conn.query(
+      `SELECT expl_cb FROM exemplaires 
+       WHERE expl_cb REGEXP '^[0-9]+$' AND CAST(expl_cb AS UNSIGNED) < 1000000000 
+       ORDER BY CAST(expl_cb AS UNSIGNED) DESC LIMIT 1`
+    )
+    const cbArr = cbRows as RowDataPacket[]
+
+    let nextBarcodeVal = 10001
+    let originalStr = ''
+    if (cbArr.length > 0) {
+      originalStr = cbArr[0].expl_cb
+      nextBarcodeVal = parseInt(originalStr, 10) + 1
+    }
+
+    let nextBarcode = String(nextBarcodeVal)
+    if (originalStr.startsWith('0') && originalStr.length > 1) {
+      nextBarcode = String(nextBarcodeVal).padStart(originalStr.length, '0')
+    }
+    return nextBarcode
   }
 }

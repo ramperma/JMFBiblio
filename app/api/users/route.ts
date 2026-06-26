@@ -60,7 +60,20 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const { empr_nom, empr_prenom, empr_cb, empr_mail, empr_tel1 } = await request.json()
+    const {
+      empr_nom,
+      empr_prenom,
+      empr_cb,
+      empr_mail,
+      empr_tel1,
+      empr_sexe,
+      empr_year,
+      empr_ville,
+      empr_date_adhesion,
+      empr_date_expiration,
+      empr_categ,
+      groupId
+    } = await request.json()
 
     if (!empr_nom || !empr_prenom) {
       return NextResponse.json(
@@ -74,7 +87,14 @@ export async function POST(request: NextRequest) {
       empr_prenom: String(empr_prenom).trim(),
       empr_cb: empr_cb ? String(empr_cb).trim() : undefined,
       empr_mail: empr_mail ? String(empr_mail).trim() : undefined,
-      empr_tel1: empr_tel1 ? String(empr_tel1).trim() : undefined
+      empr_tel1: empr_tel1 ? String(empr_tel1).trim() : undefined,
+      empr_sexe: empr_sexe !== undefined ? Number(empr_sexe) : undefined,
+      empr_year: empr_year !== undefined ? Number(empr_year) : undefined,
+      empr_ville: empr_ville ? String(empr_ville).trim() : undefined,
+      empr_date_adhesion: empr_date_adhesion ? String(empr_date_adhesion).trim() : undefined,
+      empr_date_expiration: empr_date_expiration ? String(empr_date_expiration).trim() : undefined,
+      empr_categ: empr_categ !== undefined ? Number(empr_categ) : undefined,
+      groupId: groupId !== undefined ? Number(groupId) : undefined
     })
 
     return NextResponse.json({ success: true, data: { id_empr: id } })

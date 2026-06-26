@@ -10,6 +10,12 @@ export interface User {
   empr_tel1?: string
   is_active?: boolean
   user_groups?: string
+  empr_sexe?: number
+  empr_year?: number
+  empr_ville?: string
+  empr_date_adhesion?: string | null
+  empr_date_expiration?: string | null
+  empr_categ?: number
 }
 
 let userStateInitialized = false
@@ -94,11 +100,15 @@ export const userRepository = {
 
     const [rows] = await conn.query(
       `SELECT u.id_empr, u.empr_nom, u.empr_prenom, u.empr_cb, u.empr_mail, u.empr_tel1,
+          u.empr_sexe, u.empr_year, u.empr_ville, u.empr_categ,
+          DATE_FORMAT(u.empr_date_adhesion, '%Y-%m-%d') AS empr_date_adhesion,
+          DATE_FORMAT(u.empr_date_expiration, '%Y-%m-%d') AS empr_date_expiration,
           COALESCE(s.is_active, 1) AS is_active,
           (SELECT GROUP_CONCAT(g.libelle_groupe SEPARATOR ', ')
            FROM empr_groupe eg
            JOIN groupe g ON g.id_groupe = eg.groupe_id
-           WHERE eg.empr_id = u.id_empr) AS user_groups
+           WHERE eg.empr_id = u.id_empr) AS user_groups,
+          (SELECT eg.groupe_id FROM empr_groupe eg WHERE eg.empr_id = u.id_empr LIMIT 1) AS group_id
        FROM empr u
        LEFT JOIN app_user_state s ON s.id_empr = u.id_empr
        ${whereClause}
@@ -115,7 +125,14 @@ export const userRepository = {
       empr_mail: row.empr_mail,
       empr_tel1: row.empr_tel1,
       is_active: row.is_active === 1,
-      user_groups: row.user_groups || ''
+      user_groups: row.user_groups || '',
+      empr_sexe: row.empr_sexe,
+      empr_year: row.empr_year,
+      empr_ville: row.empr_ville,
+      empr_date_adhesion: row.empr_date_adhesion,
+      empr_date_expiration: row.empr_date_expiration,
+      empr_categ: row.empr_categ,
+      groupId: row.group_id || undefined
     }))
 
     return { data, total }
@@ -127,18 +144,33 @@ export const userRepository = {
     empr_cb?: string
     empr_mail?: string
     empr_tel1?: string
+    empr_sexe?: number
+    empr_year?: number
+    empr_ville?: string
+    empr_date_adhesion?: string | null
+    empr_date_expiration?: string | null
+    empr_categ?: number
+    groupId?: number
   }) {
     const conn = await getDbConnection()
     const loginBase = `${input.empr_nom}.${input.empr_prenom}`.toLowerCase().replace(/\s+/g, '_')
     const login = `${loginBase}_${Date.now()}`
+
+    const adhesion = input.empr_date_adhesion || new Date().toISOString().split('T')[0]
+    const expiration = input.empr_date_expiration || (() => {
+      const d = new Date()
+      d.setFullYear(d.getFullYear() + 1)
+      return d.toISOString().split('T')[0]
+    })()
 
     const [result] = await conn.query(
       `INSERT INTO empr (
         empr_nom, empr_prenom, empr_cb, empr_adr1, empr_adr2, empr_cp,
         empr_ville, empr_pays, empr_mail, empr_tel1, empr_tel2, empr_prof,
         empr_login, empr_password, empr_digest, cle_validation,
-        empr_pnb_password, empr_pnb_password_hint
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        empr_pnb_password, empr_pnb_password_hint,
+        empr_sexe, empr_year, empr_date_adhesion, empr_date_expiration, empr_categ
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         input.empr_nom,
         input.empr_prenom,
@@ -146,7 +178,7 @@ export const userRepository = {
         '',
         '',
         '',
-        '',
+        input.empr_ville || 'Valencia',
         '',
         input.empr_mail || '',
         input.empr_tel1 || '',
@@ -157,11 +189,25 @@ export const userRepository = {
         '',
         '',
         '',
-        ''
+        '',
+        input.empr_sexe || 0,
+        input.empr_year || 0,
+        adhesion,
+        expiration,
+        input.empr_categ || 6
       ]
     )
 
-    return (result as ResultSetHeader).insertId
+    const insertId = (result as ResultSetHeader).insertId
+
+    if (input.groupId) {
+      await conn.query(
+        'INSERT IGNORE INTO empr_groupe (empr_id, groupe_id) VALUES (?, ?)',
+        [insertId, input.groupId]
+      )
+    }
+
+    return insertId
   },
 
   async updateUser(
@@ -169,9 +215,16 @@ export const userRepository = {
     input: {
       empr_nom?: string
       empr_prenom?: string
-      empr_cb?: string
+      empr_cb?: string | null
       empr_mail?: string
       empr_tel1?: string
+      empr_sexe?: number
+      empr_year?: number
+      empr_ville?: string
+      empr_date_adhesion?: string | null
+      empr_date_expiration?: string | null
+      empr_categ?: number
+      groupId?: number | null
     }
   ) {
     const conn = await getDbConnection()
@@ -198,13 +251,46 @@ export const userRepository = {
       updates.push('empr_tel1 = ?')
       params.push(input.empr_tel1)
     }
-
-    if (updates.length === 0) {
-      return
+    if (input.empr_sexe !== undefined) {
+      updates.push('empr_sexe = ?')
+      params.push(input.empr_sexe)
+    }
+    if (input.empr_year !== undefined) {
+      updates.push('empr_year = ?')
+      params.push(input.empr_year)
+    }
+    if (input.empr_ville !== undefined) {
+      updates.push('empr_ville = ?')
+      params.push(input.empr_ville)
+    }
+    if (input.empr_date_adhesion !== undefined) {
+      updates.push('empr_date_adhesion = ?')
+      params.push(input.empr_date_adhesion)
+    }
+    if (input.empr_date_expiration !== undefined) {
+      updates.push('empr_date_expiration = ?')
+      params.push(input.empr_date_expiration)
+    }
+    if (input.empr_categ !== undefined) {
+      updates.push('empr_categ = ?')
+      params.push(input.empr_categ)
     }
 
-    params.push(id)
-    await conn.query(`UPDATE empr SET ${updates.join(', ')} WHERE id_empr = ?`, params)
+    if (updates.length > 0) {
+      params.push(id)
+      await conn.query(`UPDATE empr SET ${updates.join(', ')} WHERE id_empr = ?`, params)
+    }
+
+    if (input.groupId !== undefined) {
+      // Remove old groups
+      await conn.query('DELETE FROM empr_groupe WHERE empr_id = ?', [id])
+      if (input.groupId !== null && input.groupId > 0) {
+        await conn.query('INSERT IGNORE INTO empr_groupe (empr_id, groupe_id) VALUES (?, ?)', [
+          id,
+          input.groupId
+        ])
+      }
+    }
   },
 
   async setUserActive(id: number, isActive: boolean) {
@@ -235,12 +321,16 @@ export const userRepository = {
     }))
   },
 
-  async getUserById(userId: number): Promise<User | null> {
+  async getUserById(userId: number): Promise<User & { groupId?: number } | null> {
     await ensureUserStateTable()
     const conn = await getDbConnection()
     const [rows] = await conn.query(
       `SELECT u.id_empr, u.empr_nom, u.empr_prenom, u.empr_cb, u.empr_mail, u.empr_tel1,
-              COALESCE(s.is_active, 1) AS is_active
+              u.empr_sexe, u.empr_year, u.empr_ville, u.empr_categ,
+              DATE_FORMAT(u.empr_date_adhesion, '%Y-%m-%d') AS empr_date_adhesion,
+              DATE_FORMAT(u.empr_date_expiration, '%Y-%m-%d') AS empr_date_expiration,
+              COALESCE(s.is_active, 1) AS is_active,
+              (SELECT eg.groupe_id FROM empr_groupe eg WHERE eg.empr_id = u.id_empr LIMIT 1) AS group_id
        FROM empr u
        LEFT JOIN app_user_state s ON s.id_empr = u.id_empr
        WHERE u.id_empr = ?`,
@@ -259,7 +349,14 @@ export const userRepository = {
       empr_cb: row.empr_cb,
       empr_mail: row.empr_mail,
       empr_tel1: row.empr_tel1,
-      is_active: row.is_active === 1
+      is_active: row.is_active === 1,
+      empr_sexe: row.empr_sexe,
+      empr_year: row.empr_year,
+      empr_ville: row.empr_ville,
+      empr_date_adhesion: row.empr_date_adhesion,
+      empr_date_expiration: row.empr_date_expiration,
+      empr_categ: row.empr_categ,
+      groupId: row.group_id || undefined
     }
   },
 
@@ -287,6 +384,17 @@ export const userRepository = {
       empr_mail: row.empr_mail,
       empr_tel1: row.empr_tel1,
       user_groups: row.user_groups || ''
+    }))
+  },
+
+  async getUserCategories(): Promise<{ id_categ_empr: number; libelle: string }[]> {
+    const conn = await getDbConnection()
+    const [rows] = await conn.query(
+      `SELECT id_categ_empr, libelle FROM empr_categ ORDER BY libelle`
+    )
+    return (rows as RowDataPacket[]).map(row => ({
+      id_categ_empr: row.id_categ_empr,
+      libelle: row.libelle
     }))
   }
 }
