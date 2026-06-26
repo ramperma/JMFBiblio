@@ -4,8 +4,12 @@ let connection: mysql.Connection | null = null
 
 export async function getDbConnection(): Promise<mysql.Connection> {
   if (connection) {
-    await connection.ping()
-    return connection
+    try {
+      await connection.ping()
+      return connection
+    } catch (error) {
+      connection = null
+    }
   }
 
   connection = await mysql.createConnection({
